@@ -1,11 +1,20 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from qnsentry.db.models import Base
 from qnsentry.db.session import engine
 
-app = FastAPI(title="QN-Sentry API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Create missing database tables at startup."""
+    Base.metadata.create_all(bind=engine)
+    yield
+
+app = FastAPI(title="QN-Sentry API", lifespan=lifespan)
 
 
 @app.get("/api/health")
