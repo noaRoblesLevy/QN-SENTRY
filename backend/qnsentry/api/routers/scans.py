@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from qnsentry.api.schemas import FindingOut, ModuleRunOut, ScanOut, ScanSummary
-from qnsentry.db.models import Domain, Finding, Scan
+from qnsentry.db.models import Domain, Finding, ModuleRun, Scan
 from qnsentry.db.session import get_db
+from qnsentry.modules import MODULES
+from qnsentry.worker.tasks import run_scan
 
 router = APIRouter(prefix="/api", tags=["scans"])
 
@@ -25,11 +27,17 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
     if domain is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain not found")
 
-    scan = Scan(domain=domain)
+    # One module run per module, in the order the worker runs them
+    scan = Scan(
+        domain=domain,
+        module_runs=[ModuleRun(module=module.name) for module in MODULES],
+    )
     db.add(scan)
     db.commit()
     db.refresh(scan)
-    # TODO(#1): hand the scan to the Celery worker
+
+    # Queue the scan in Redis; a worker picks it up (the API does not wait)
+    run_scan.delay(scan.id)
     return scan
 
 
