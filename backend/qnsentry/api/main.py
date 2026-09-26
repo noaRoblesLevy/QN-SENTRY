@@ -5,8 +5,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from qnsentry.api.routers import clients, scans
 from qnsentry.db.models import Base
 from qnsentry.db.session import engine
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -14,7 +16,10 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     yield
 
+
 app = FastAPI(title="QN-Sentry API", lifespan=lifespan)
+app.include_router(clients.router)
+app.include_router(scans.router)
 
 
 @app.get("/api/health")

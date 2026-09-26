@@ -54,7 +54,7 @@ class Client(Base):
     )
 
     domains: Mapped[list["Domain"]] = relationship(
-        back_populates="client", cascade="all, delete-orphan"
+        back_populates="client", cascade="all, delete-orphan", order_by="Domain.name"
     )
 
 
@@ -71,8 +71,9 @@ class Domain(Base):
     )
 
     client: Mapped[Client] = relationship(back_populates="domains")
+    # Newest scan first, as the dashboard expects
     scans: Mapped[list["Scan"]] = relationship(
-        back_populates="domain", cascade="all, delete-orphan"
+        back_populates="domain", cascade="all, delete-orphan", order_by="Scan.id.desc()"
     )
 
 
@@ -95,10 +96,10 @@ class Scan(Base):
 
     domain: Mapped[Domain] = relationship(back_populates="scans")
     module_runs: Mapped[list["ModuleRun"]] = relationship(
-        back_populates="scan", cascade="all, delete-orphan"
+        back_populates="scan", cascade="all, delete-orphan", order_by="ModuleRun.id"
     )
     findings: Mapped[list["Finding"]] = relationship(
-        back_populates="scan", cascade="all, delete-orphan"
+        back_populates="scan", cascade="all, delete-orphan", order_by="Finding.id"
     )
 
 
