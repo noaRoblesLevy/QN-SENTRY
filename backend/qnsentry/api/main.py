@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -20,6 +21,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="QN-Sentry API", lifespan=lifespan)
 app.include_router(clients.router)
 app.include_router(scans.router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(
+    request: Request, error: RequestValidationError
+) -> JSONResponse:
+    """Return validation errors as {"detail": "..."} like every other error.
+
+    FastAPI returns a list of error objects by default, but the dashboard
+    shows `detail` as text (data contract 10.5).
+    """
+    errors = error.errors()
+    message = errors[0]["msg"] if errors else "Invalid request"
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": message.removeprefix("Value error, ")},
+    )
 
 
 @app.get("/api/health")
