@@ -1,111 +1,110 @@
+/* Design tokens from the QN-SENTRY design system.
+   Dark is the primary theme; light is for reports (set data-theme="light" on <html>). */
+:root,
+[data-theme='dark'] {
+  --bg: #0b0f14;
+  --surface: #121821;
+  --surface-raised: #1a222d;
+  --line: #263140;
+  --line-strong: #66768b;
+  --ink: #e6ebf1;
+  --ink-muted: #9aa8b8;
+  --signal: #2dd4bf;
+  --signal-soft: #0f2e2c;
+  --on-signal: #06201d;
+
+  --sev-critical: #ff6b78;
+  --sev-critical-soft: #3a1419;
+  --sev-high: #ff9a4d;
+  --sev-high-soft: #3a2210;
+  --sev-medium: #f2c94c;
+  --sev-medium-soft: #342a0c;
+  --sev-low: #74b4ff;
+  --sev-low-soft: #122a45;
+  --sev-info: #9aa8b8;
+  --sev-info-soft: #1f2833;
+
+  --shadow-float: 0 8px 24px #000000b3;
+  --focus-ring: 0 0 0 2px #0b0f14, 0 0 0 4px #2dd4bf;
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --line: #dde3ea;
+  --line-strong: #7a8898;
+  --ink: #0f1720;
+  --ink-muted: #4f5d6c;
+  --signal: #0a7a72;
+  --signal-soft: #e2f4f2;
+  --on-signal: #ffffff;
+
+  --sev-critical: #b8182f;
+  --sev-critical-soft: #fde8ea;
+  --sev-high: #a8430a;
+  --sev-high-soft: #fdeede;
+  --sev-medium: #7d5b00;
+  --sev-medium-soft: #fbf2d6;
+  --sev-low: #1d5cb8;
+  --sev-low-soft: #e4eefc;
+  --sev-info: #4f5d6c;
+  --sev-info-soft: #eef1f4;
+
+  --shadow-float: 0 4px 8px #0f172014, 0 12px 28px -4px #0f172029;
+  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0a7a72;
+
+  color-scheme: light;
+}
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --link: var(--signal);
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-full: 9999px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
+h2,
+h3,
 p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+a {
+  color: var(--link);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
