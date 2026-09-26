@@ -20,6 +20,20 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    env_file: .env
+    ports:
+    - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+   
 
 volumes:
   db-data:
