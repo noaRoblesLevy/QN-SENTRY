@@ -108,3 +108,15 @@ a {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+/* Hidden on screen, still read by screen readers (e.g. an "Actions" column header) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

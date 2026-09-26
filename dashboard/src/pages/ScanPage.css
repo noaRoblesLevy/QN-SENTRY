@@ -1,0 +1,17 @@
+.scan-domain {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.scan-warning {
+  margin: 0 0 var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+}
+
+.module-error {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+}

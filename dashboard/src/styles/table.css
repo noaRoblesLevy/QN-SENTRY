@@ -1,0 +1,77 @@
+/* The dense data table from the house style: 36px rows, uppercase column headers */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-raised);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+
+.data-table td {
+  height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr {
+  transition: background-color 120ms;
+}
+
+.data-table tbody tr:hover {
+  background: var(--surface-raised);
+}
+
+/* .data-table in front, so this also beats `.data-table th { text-align: left }` */
+.data-table .numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.data-table .actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.data-table a {
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.data-table a:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+/* Hostnames, IPs, email addresses: machine output in IBM Plex Mono ("data" style) */
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .data-table tbody tr {
+    transition: none;
+  }
+}
