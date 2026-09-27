@@ -1,0 +1,19 @@
+{
+	# The admin API is not needed on the test server
+	admin off
+}
+
+{$STAGING_ADDRESS} {
+	# Decoy login: every attempt fails, nothing is behind it
+	@login path /login
+	respond @login "Invalid username or password" 401
+
+	root * /srv/staging
+	file_server
+
+	# Pretend to be an outdated stack. Caddy itself is up to date.
+	header {
+		Server "nginx/1.18.0"
+		X-Powered-By "PHP/7.4.3"
+	}
+}

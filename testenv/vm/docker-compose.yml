@@ -1,0 +1,25 @@
+# BadSecurityInc: the fictitious company QN-Sentry is tested against (issue #2).
+# Everything here is a decoy: it looks outdated or exposed, but is not.
+services:
+  staging:
+    image: caddy:2-alpine
+    environment:
+      STAGING_ADDRESS: ${STAGING_ADDRESS}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./staging:/srv/staging:ro
+      - caddy-data:/data
+    restart: unless-stopped
+
+  decoy-ssh:
+    build: ./decoy-ssh
+    ports:
+      - "2222:2222"
+    restart: unless-stopped
+
+volumes:
+  caddy-data:

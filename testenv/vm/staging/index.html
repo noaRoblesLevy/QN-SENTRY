@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BadSecurityInc – Staging admin</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f2f2f2; margin: 0; }
+      main { max-width: 360px; margin: 80px auto; background: #fff; padding: 32px; border: 1px solid #ccc; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p { color: #666; font-size: 13px; margin: 0 0 24px; }
+      label { display: block; font-size: 13px; margin-bottom: 4px; }
+      input { width: 100%; box-sizing: border-box; padding: 8px; margin-bottom: 16px; }
+      button { width: 100%; padding: 10px; background: #2d5f8a; color: #fff; border: 0; }
+      footer { text-align: center; font-size: 11px; color: #999; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>BadSecurityInc admin</h1>
+      <p>Staging environment – internal use only</p>
+      <form method="post" action="/login">
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="off" />
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" />
+        <button type="submit">Log in</button>
+      </form>
+      <footer>Admin panel v2.3.1 – build 2019-11-04</footer>
+    </main>
+  </body>
+</html>
