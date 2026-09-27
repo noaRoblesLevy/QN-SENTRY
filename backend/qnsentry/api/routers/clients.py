@@ -51,9 +51,11 @@ def add_domain(
     client_id: int, payload: DomainCreate, db: Session = Depends(get_db)
 ) -> Domain:
     client = get_client_or_404(db, client_id)
-    if any(domain.name == payload.name for domain in client.domains):
+    # A domain belongs to one client only, across all clients
+    existing = db.scalar(select(Domain).where(Domain.name == payload.name))
+    if existing is not None:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "This client already has this domain"
+            status.HTTP_409_CONFLICT, f"{payload.name} is already added."
         )
 
     domain = Domain(name=payload.name, client=client)

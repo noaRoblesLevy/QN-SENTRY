@@ -65,7 +65,8 @@ class Domain(Base):
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE")
     )
-    name: Mapped[str] = mapped_column(String(253))
+    # A domain belongs to one client only
+    name: Mapped[str] = mapped_column(String(253), unique=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

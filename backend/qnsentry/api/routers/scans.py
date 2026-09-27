@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from qnsentry.api.schemas import FindingOut, ModuleRunOut, ScanOut, ScanSummary
-from qnsentry.db.models import Domain, Finding, ModuleRun, Scan
+from qnsentry.db.models import Domain, Finding, ModuleRun, Scan, ScanStatus
 from qnsentry.db.session import get_db
 from qnsentry.modules import MODULES
 from qnsentry.worker.tasks import run_scan
@@ -26,6 +27,18 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
     domain = db.get(Domain, domain_id)
     if domain is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain not found")
+
+    # Only one active scan per domain: a second one would repeat the same work
+    active = db.scalar(
+        select(Scan).where(
+            Scan.domain_id == domain.id,
+            Scan.status.in_([ScanStatus.QUEUED, ScanStatus.RUNNING]),
+        )
+    )
+    if active is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "A scan is already running for this domain."
+        )
 
     # One module run per module, in the order the worker runs them
     scan = Scan(
