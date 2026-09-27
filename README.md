@@ -17,9 +17,100 @@ Given a company domain, QN-Sentry performs an on-demand OSINT assessment of the 
 
 Python · FastAPI · Celery + Redis · PostgreSQL · React · Caddy · Docker Compose
 
+## Getting started
+
+Requirements: Docker with Docker Compose.
+
+```bash
+cp .env.example .env          # then choose your own database password in .env
+docker compose up -d --build
+```
+
+| Service | Address | Purpose |
+|---|---|---|
+| `api` | http://localhost:8000/docs | REST API with interactive documentation |
+| `worker` | – | Celery worker that runs the scans |
+| `db` | internal only | PostgreSQL |
+| `redis` | internal only | Task queue between the API and the worker |
+
+The dashboard is in [`dashboard/`](dashboard/README.md).
+
+## Project structure
+
+```
+backend/qnsentry/
+├── api/          FastAPI app: routers (endpoints) and schemas (request and response bodies)
+├── db/           SQLAlchemy models and the database session
+├── modules/      OSINT modules and the module interface
+├── worker/       Celery app and the task that runs a scan
+└── config.py     Settings read from environment variables
+```
+
+## How a scan runs
+
+1. `POST /api/domains/{id}/scans` stores a scan (`queued`) with one module run per module (`pending`) and puts a task in Redis. The API does not wait for the scan.
+2. A Celery worker picks up the task and runs the modules one after another, in the order of `MODULES` in `backend/qnsentry/modules/__init__.py`.
+3. For each module, the worker marks it `running`, calls `module.run(context)`, stores the returned findings and marks it `completed`. If a module raises an exception, it is marked `failed` with the error message and the next module still runs.
+4. The scan ends as `completed`, or `partial` when at least one module failed. The dashboard polls `GET /api/scans/{id}` to show the progress.
+
+## Finding format
+
+Every module returns its results in the same format, so the dashboard, the report and the risk score never need module-specific code. The full agreement, including the finding types and severity levels, is in the [data contract](docs/project/10-data-contract.md).
+
+| Field | Meaning |
+|---|---|
+| `module` | Name of the module that produced the finding, e.g. `phishing` |
+| `type` | Fixed code for the kind of finding, e.g. `lookalike_domain` (contract 10.1.1) |
+| `title` | Short one-liner shown in the dashboard |
+| `description` | Plain-language explanation of the risk, used in the report |
+| `severity` | `info`, `low`, `medium`, `high` or `critical` (contract 10.2) |
+| `asset` | What the finding is about: a domain, host, host and port, URL or email address |
+| `details` | Module-specific technical data (JSON) |
+
+The database adds `id`, `scan_id` and `created_at`.
+
+## Adding a module
+
+A module is a class that implements the interface in [`backend/qnsentry/modules/base.py`](backend/qnsentry/modules/base.py):
+
+```python
+from qnsentry.db.models import Severity
+from qnsentry.modules.base import Finding, Module, ScanContext
+
+
+class PhishingModule(Module):
+    name = "phishing"
+
+    def run(self, context: ScanContext) -> list[Finding]:
+        findings = []
+        # ... look up lookalike domains for context.domain ...
+        findings.append(
+            Finding(
+                module=self.name,
+                type="lookalike_domain",
+                title="Registered lookalike domain badsecuritylnc.be",
+                description="This domain looks like the company domain ...",
+                severity=Severity.HIGH,
+                asset="badsecuritylnc.be",
+                details={"fuzzer": "homoglyph"},
+            )
+        )
+        return findings
+```
+
+Rules (contract 10.3):
+
+- **Never write to the database.** Return the findings; the worker stores them. This keeps modules testable without a database.
+- **Share information through the context.** Read what earlier modules found (e.g. `context.person_names` from Metadata) and fill in what later modules need.
+- **Partial failure:** if part of the module fails but it still has useful results, catch the error, log a warning and return what you have.
+- **Total failure:** if the module cannot run at all (e.g. a tool is missing), raise an exception. The worker marks the module as `failed` and continues.
+- **External tools** (subfinder, nmap, dnstwist, ...) are installed in `backend/Dockerfile.worker`.
+
+To activate the module, replace its `PlaceholderModule` in `MODULES` in [`backend/qnsentry/modules/__init__.py`](backend/qnsentry/modules/__init__.py). Keep the order of the list: modules later in the list can use what earlier modules added to the context.
+
 ## Documentation
 
-See [`docs/`](docs/README.md) for the full project overview: features, architecture, test environment, legal framework, planning and risks.
+See [`docs/`](docs/README.md) for the full project overview: features, architecture, test environment, legal framework, planning, risks and the data contract.
 
 ## Responsible use
 
