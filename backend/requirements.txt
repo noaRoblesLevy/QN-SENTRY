@@ -4,3 +4,7 @@ sqlalchemy>=2.0
 psycopg[binary]>=3.2
 pydantic-settings>=2.4
 celery[redis]>=5.4
+
+# Phishing module (#9). dnstwist is pinned: the module uses its Scanner class, which is not an official API.
+dnstwist==20250130
+dnspython>=2.6
