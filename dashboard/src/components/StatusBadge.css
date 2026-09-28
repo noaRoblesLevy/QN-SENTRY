@@ -1,0 +1,21 @@
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.status-muted {
+  color: var(--ink-muted);
+}
+
+.status-active {
+  color: var(--signal);
+}
+
+.status-strong {
+  color: var(--ink);
+}

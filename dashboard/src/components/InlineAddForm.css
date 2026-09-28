@@ -1,0 +1,15 @@
+.inline-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.inline-add-field {
+  flex: 1 1 240px;
+}
+
+/* Line the button up with the input, below the 18px label and 4px gap */
+.inline-add-form > .button {
+  margin-top: 22px;
+}

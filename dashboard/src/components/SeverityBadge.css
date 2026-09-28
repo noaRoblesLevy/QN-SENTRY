@@ -1,0 +1,45 @@
+.severity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.severity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.severity-critical {
+  color: var(--sev-critical);
+  background: var(--sev-critical-soft);
+}
+
+.severity-high {
+  color: var(--sev-high);
+  background: var(--sev-high-soft);
+}
+
+.severity-medium {
+  color: var(--sev-medium);
+  background: var(--sev-medium-soft);
+}
+
+.severity-low {
+  color: var(--sev-low);
+  background: var(--sev-low-soft);
+}
+
+.severity-info {
+  color: var(--sev-info);
+  background: var(--sev-info-soft);
+}
