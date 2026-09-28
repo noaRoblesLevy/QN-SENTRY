@@ -28,12 +28,13 @@ docker compose up -d --build
 
 | Service | Address | Purpose |
 |---|---|---|
+| `dashboard` | http://localhost:8080 | Web interface: clients, domains, scans and findings |
 | `api` | http://localhost:8000/docs | REST API with interactive documentation |
 | `worker` | – | Celery worker that runs the scans |
 | `db` | internal only | PostgreSQL |
 | `redis` | internal only | Task queue between the API and the worker |
 
-The dashboard is in [`dashboard/`](dashboard/README.md).
+The dashboard's nginx forwards `/api` to the `api` service, so the dashboard and the API share one address. For development with live reload, see [`dashboard/README.md`](dashboard/README.md).
 
 ## Project structure
 
