@@ -45,5 +45,17 @@ services:
       redis:
         condition: service_healthy
 
+  dashboard:
+    build:
+      context: ./dashboard
+    # nginx serves the React app and forwards /api to the api service
+    environment:
+      - API_UPSTREAM=http://api:8000
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      # nginx looks up the name "api" when it starts
+      - api
+
 volumes:
   db-data:
