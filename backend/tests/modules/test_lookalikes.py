@@ -33,6 +33,49 @@ def test_untrustworthy_resolver_fails_instead_of_reporting_zero_lookalikes(monke
         check_resolver("be", nameservers=["192.0.2.53"])
 
 
+def test_generates_alternative_top_level_domains():
+    tld_swaps = {p["domain"] for p in generate_permutations(DOMAIN) if p["fuzzer"] == "tld-swap"}
+
+    assert {"badsecurityinc.com", "badsecurityinc.eu", "badsecurityinc.nl"} <= tld_swaps
+    assert DOMAIN not in tld_swaps
+    # dnstwist removes the own TLD from the list it gets; the shared constant must stay intact
+    assert "be" in {p["domain"].rsplit(".", 1)[1] for p in generate_permutations("badsecurityinc.com")}
+
+
+def test_lookalike_using_the_clients_own_servers_is_info():
+    client = {"fuzzer": "*original", "domain": DOMAIN, "dns_ns": ["ns01.one.com"]}
+    lookalike = {
+        "fuzzer": "tld-swap",
+        "domain": "badsecurityinc.com",
+        "dns_ns": ["ns1.badsecurityinc.be"],
+        "dns_mx": ["mail.badsecurityinc.be"],
+    }
+
+    finding = to_finding(lookalike, client)
+
+    assert finding.severity == Severity.INFO
+    assert "registered by the company itself" in finding.title
+    assert finding.details["own_infrastructure"] == {"ns": ["ns1.badsecurityinc.be"], "mx": ["mail.badsecurityinc.be"]}
+
+
+def test_shared_dns_provider_is_noted_but_keeps_the_severity():
+    # Our planted attacker domain uses the same DNS provider (one.com) as the company:
+    # a shared provider must not hide it
+    client = {"fuzzer": "*original", "domain": DOMAIN, "dns_ns": ["ns01.one.com", "ns02.one.com"]}
+    lookalike = {
+        "fuzzer": "homoglyph",
+        "domain": "badsecuritylnc.be",
+        "dns_ns": ["ns01.one.com", "ns02.one.com"],
+        "dns_mx": ["mail.badsecuritylnc.be"],
+    }
+
+    finding = to_finding(lookalike, client)
+
+    assert finding.severity == Severity.HIGH
+    assert finding.details["shared_with_client"] == {"ns": ["ns01.one.com", "ns02.one.com"]}
+    assert "defensive registration" in finding.description
+
+
 def test_rejects_an_invalid_domain():
     with pytest.raises(ValueError, match="Not a valid domain name"):
         generate_permutations("not a domain")

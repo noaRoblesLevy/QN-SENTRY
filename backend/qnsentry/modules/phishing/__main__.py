@@ -11,9 +11,9 @@ Only scan domains you own or have written permission to assess.
 
 import argparse
 import json
-from dataclasses import asdict
 import sys
 import time
+from dataclasses import asdict
 
 from qnsentry.modules.phishing.lookalikes import find_lookalike_domains, generate_permutations
 

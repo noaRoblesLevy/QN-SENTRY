@@ -1,7 +1,8 @@
 """Lookalike domain detection (issue #9) with dnstwist.
 
 Three steps:
-1. Generate permutations of the client's domain: typos, homoglyphs, extra letters, ...
+1. Generate permutations of the client's domain: typos, homoglyphs, extra letters,
+   other top-level domains (.com, .eu, ...)
    (dnstwist.Fuzzer, offline)
 2. Look up the DNS records (NS, A, AAAA, MX) of every permutation to see which ones
    are registered (dnstwist.Scanner threads)
@@ -24,8 +25,8 @@ import dnstwist
 
 from qnsentry.db.models import Severity
 from qnsentry.modules.base import Finding
+from qnsentry.modules.phishing.constants import ALTERNATIVE_TLDS, MODULE
 
-MODULE = "phishing"
 FINDING_TYPE = "lookalike_domain"
 DNS_FIELDS = ("dns_ns", "dns_a", "dns_aaaa", "dns_mx")
 SERVFAIL = "!ServFail"  # dnstwist's marker for a failed lookup; not a real record
@@ -38,7 +39,9 @@ def find_lookalike_domains(
 ) -> list[Finding]:
     """All registered lookalikes of `domain` as findings, those that can receive email first."""
     permutations = resolve_permutations(domain, threads=threads, nameservers=nameservers)
-    return [to_finding(p) for p in registered_lookalikes(domain, permutations)]
+    # The client's own domain is resolved too; its records help to spot its own registrations
+    client = next((p for p in permutations if p.get("fuzzer") == "*original"), None)
+    return [to_finding(p, client) for p in registered_lookalikes(domain, permutations)]
 
 
 def generate_permutations(domain: str) -> list[Permutation]:
@@ -87,13 +90,28 @@ def registered_lookalikes(domain: str, permutations: list[Permutation]) -> list[
     return sorted(found, key=lambda p: (not _records(p, "dns_mx"), p["domain"]))
 
 
-def to_finding(permutation: Permutation) -> Finding:
-    """Step 3b: one registered lookalike as a finding (severity rules: data contract 10.2)."""
+def to_finding(permutation: Permutation, client: Permutation | None = None) -> Finding:
+    """Step 3b: one registered lookalike as a finding (severity rules: data contract 10.2).
+
+    `client` is the client's own domain with its DNS records, used to recognise lookalikes
+    the client registered itself (defensive registrations).
+    """
     name = permutation["domain"]
     readable = _unicode(name)
     mx = _records(permutation, "dns_mx")
+    own_infrastructure = _points_into_client_domain(permutation, client)
 
-    if mx:
+    if own_infrastructure:
+        # Strong evidence: its name servers or mail servers are hosts of the client's own
+        # domain, which an outsider cannot set up
+        severity = Severity.INFO
+        title = f"Lookalike domain {readable} appears to be registered by the company itself"
+        description = (
+            "This domain looks like the company domain, but its name servers or mail servers are "
+            "part of the company's own domain, so it is most likely a defensive registration by "
+            "the company. Check that the company really owns it."
+        )
+    elif mx:
         severity = Severity.HIGH
         title = f"Registered lookalike domain {readable} (can receive email)"
         description = (
@@ -119,6 +137,18 @@ def to_finding(permutation: Permutation) -> Finding:
     }
     if readable != name:
         details["unicode"] = readable
+    if own_infrastructure:
+        details["own_infrastructure"] = own_infrastructure
+    else:
+        # Weak evidence only: the same DNS or mail provider is shared by many unrelated
+        # domains (an attacker can use it too), so it is noted but does not lower the severity
+        shared = _shared_with_client(permutation, client)
+        if shared:
+            details["shared_with_client"] = shared
+            description += (
+                " It uses the same DNS or mail provider as the company domain; if the company "
+                "registered it itself, it can be accepted as a defensive registration."
+            )
 
     return Finding(
         module=MODULE,
@@ -161,9 +191,39 @@ def _fuzzer(domain: str) -> dnstwist.Fuzzer:
         url = dnstwist.UrlParser(domain)
     except ValueError as e:
         raise ValueError(f"Not a valid domain name: {domain!r}") from e
-    fuzzer = dnstwist.Fuzzer(url.domain)
+    # Without a TLD list dnstwist does not try other TLDs (badsecurityinc.com, .eu, ...).
+    # Pass a copy: dnstwist removes the client's own TLD from the list it gets.
+    fuzzer = dnstwist.Fuzzer(url.domain, tld_dictionary=list(ALTERNATIVE_TLDS))
     fuzzer.generate()
     return fuzzer
+
+
+def _is_in_domain(host: str, domain: str) -> bool:
+    host = host.lower().rstrip(".")
+    return host == domain or host.endswith("." + domain)
+
+
+def _points_into_client_domain(permutation: Permutation, client: Permutation | None) -> dict[str, list[str]]:
+    """NS and MX hosts of the lookalike that are part of the client's own domain."""
+    if not client:
+        return {}
+    domain = client["domain"].lower()
+    found = {
+        "ns": [h for h in _records(permutation, "dns_ns") if _is_in_domain(h, domain)],
+        "mx": [h for h in _records(permutation, "dns_mx") if _is_in_domain(h, domain)],
+    }
+    return {k: v for k, v in found.items() if v}
+
+
+def _shared_with_client(permutation: Permutation, client: Permutation | None) -> dict[str, list[str]]:
+    """NS and MX hosts the lookalike has in common with the client's own domain."""
+    if not client:
+        return {}
+    shared = {
+        "ns": sorted(set(_records(permutation, "dns_ns")) & set(_records(client, "dns_ns"))),
+        "mx": sorted(set(_records(permutation, "dns_mx")) & set(_records(client, "dns_mx"))),
+    }
+    return {k: v for k, v in shared.items() if v}
 
 
 def _records(permutation: Permutation, field: str) -> list[str]:
