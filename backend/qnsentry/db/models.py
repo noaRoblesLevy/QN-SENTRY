@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
@@ -102,6 +102,17 @@ class Scan(Base):
     findings: Mapped[list["Finding"]] = relationship(
         back_populates="scan", cascade="all, delete-orphan", order_by="Finding.id"
     )
+
+    def mark_failed(self, reason: str) -> None:
+        """End the scan as failed; modules that had not finished get `reason` as error."""
+        finished_at = datetime.now(UTC)
+        self.status = ScanStatus.FAILED
+        self.finished_at = finished_at
+        for module_run in self.module_runs:
+            if module_run.status in (ModuleStatus.PENDING, ModuleStatus.RUNNING):
+                module_run.status = ModuleStatus.FAILED
+                module_run.error = reason
+                module_run.finished_at = finished_at
 
 
 class ModuleRun(Base):

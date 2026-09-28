@@ -1,14 +1,27 @@
+import logging
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from kombu.exceptions import OperationalError as QueueUnavailable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from qnsentry.api.schemas import FindingOut, ModuleRunOut, ScanOut, ScanSummary
+from qnsentry.config import settings
 from qnsentry.db.models import Domain, Finding, ModuleRun, Scan, ScanStatus
 from qnsentry.db.session import get_db
 from qnsentry.modules import MODULES
 from qnsentry.worker.tasks import run_scan
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api", tags=["scans"])
+
+
+def is_stuck(scan: Scan) -> bool:
+    """A queued or running scan older than the scan timeout will not finish anymore."""
+    timeout = timedelta(minutes=settings.scan_timeout_minutes)
+    return scan.created_at < datetime.now(UTC) - timeout
 
 
 def get_scan_or_404(db: Session, scan_id: int) -> Scan:
@@ -36,9 +49,13 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
         )
     )
     if active is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "A scan is already running for this domain."
-        )
+        if not is_stuck(active):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "A scan is already running for this domain."
+            )
+        # A stuck scan (e.g. after a worker crash) must not block the domain forever
+        active.mark_failed("The scan did not finish in time.")
+        db.commit()
 
     # One module run per module, in the order the worker runs them
     scan = Scan(
@@ -50,7 +67,16 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
     db.refresh(scan)
 
     # Queue the scan in Redis; a worker picks it up (the API does not wait)
-    run_scan.delay(scan.id)
+    try:
+        run_scan.delay(scan.id)
+    except QueueUnavailable as error:
+        logger.exception("Could not queue scan %s", scan.id)
+        scan.mark_failed("The scan could not be queued.")
+        db.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "The scan queue is unavailable. Try again later.",
+        ) from error
     return scan
 
 
