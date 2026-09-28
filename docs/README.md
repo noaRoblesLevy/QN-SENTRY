@@ -13,5 +13,6 @@ The blueprint of the project: what we build, why, and how.
 7. [Planning](project/07-planning.md)
 8. [Risks and Mitigation](project/08-risks.md)
 9. [Deliverables](project/09-deliverables.md)
+10. [Data Contract](project/10-data-contract.md)
 
 This overview is a living document: when a decision changes during development, the relevant section is updated in the same pull request.
