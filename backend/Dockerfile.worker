@@ -5,7 +5,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# The OSINT tools (subfinder, nmap, exiftool, ...) are added here by the module issues
+# OSINT tools used by the modules
+# - exiftool: document metadata (#7); Archive::Zip lets it read Office files, which are ZIP archives
+# - katana: website crawler (#7), pinned and verified against the release checksums
+ARG KATANA_VERSION=1.7.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libimage-exiftool-perl libarchive-zip-perl ca-certificates curl unzip \
+    && cd /tmp \
+    && curl -fsSLO "https://github.com/projectdiscovery/katana/releases/download/v${KATANA_VERSION}/katana_${KATANA_VERSION}_linux_amd64.zip" \
+    && curl -fsSLO "https://github.com/projectdiscovery/katana/releases/download/v${KATANA_VERSION}/katana-${KATANA_VERSION}-checksums.txt" \
+    && grep " katana_${KATANA_VERSION}_linux_amd64.zip$" "katana-${KATANA_VERSION}-checksums.txt" | sha256sum -c - \
+    && unzip -o "katana_${KATANA_VERSION}_linux_amd64.zip" katana -d /usr/local/bin \
+    && rm -f /tmp/katana* \
+    && apt-get purge -y curl unzip \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
