@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     postgres_host: str = "db"
     postgres_port: int = 5432
     redis_url: str = "redis://redis:6379/0"
+    # Longest a scan may take; a scan still queued or running after this is stuck
+    scan_timeout_minutes: int = 120
 
     @property
     def database_url(self) -> URL:

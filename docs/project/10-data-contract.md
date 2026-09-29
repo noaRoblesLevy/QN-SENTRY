@@ -196,6 +196,8 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 
 - **A domain belongs to one client only.** Adding a domain that already exists, for any client, returns `409`.
 - **One active scan per domain.** Starting a scan while another scan of that domain is `queued` or `running` returns `409`.
+- **Stuck scans do not block their domain.** A scan still `queued` or `running` after `SCAN_TIMEOUT_MINUTES` (default 120) is marked `failed` when a new scan of that domain is started. Its unfinished modules get the reason as `error`.
+- **Interrupted scans end as `failed`.** If a worker stops during a scan, the scan is marked `failed` ("The worker stopped during this scan") instead of being run again, so findings are never stored twice.
 - **Every error has the same shape:** `{"detail": "..."}`, with one readable sentence the dashboard can show as is. This includes validation errors: FastAPI returns a list of error objects by default, and the API turns that into a single message.
 
 | Status | When | Example `detail` |
@@ -203,6 +205,7 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 | `404` | The client, domain or scan does not exist | `Scan not found` |
 | `409` | The request conflicts with the rules above | `A scan is already running for this domain.` |
 | `422` | The request body is invalid | `Enter a valid domain name, e.g. example.be` |
+| `503` | The scan could not be queued (Redis unavailable); the scan is marked `failed` | `The scan queue is unavailable. Try again later.` |
 
 ## 10.6 Open Questions
 
