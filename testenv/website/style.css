@@ -1,0 +1,174 @@
+:root {
+  --navy: #14305a;
+  --blue: #1f6fd1;
+  --ink: #1e2430;
+  --muted: #5b6475;
+  --line: #e2e6ee;
+  --bg: #f6f8fb;
+  --warn-bg: #fff4d6;
+  --warn-ink: #6b4e00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #fff;
+  color: var(--ink);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--blue);
+}
+
+.test-banner {
+  padding: 8px 16px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 14px;
+  text-align: center;
+}
+
+header {
+  background: var(--navy);
+  color: #fff;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.logo {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.logo span {
+  color: #8fc1ff;
+}
+
+nav a {
+  margin-left: 18px;
+  color: #dbe7ff;
+  text-decoration: none;
+}
+
+nav a:hover,
+nav a[aria-current='page'] {
+  color: #fff;
+  text-decoration: underline;
+}
+
+main {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 32px 16px 48px;
+}
+
+.hero {
+  padding: 48px 16px;
+  background: linear-gradient(#eaf2ff, #fff);
+  text-align: center;
+}
+
+.hero h1 {
+  margin: 0 0 12px;
+  color: var(--navy);
+  font-size: 36px;
+}
+
+.hero p {
+  max-width: 640px;
+  margin: 0 auto;
+  color: var(--muted);
+}
+
+h1,
+h2 {
+  color: var(--navy);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  padding: 20px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+.person .role {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Long addresses like lotte.vandenbroeck@... must wrap inside the card */
+.person a {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.person .initials {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 12px;
+  background: var(--navy);
+  color: #fff;
+  border-radius: 50%;
+  font-weight: 700;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+footer {
+  padding: 24px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+footer a {
+  margin: 0 8px;
+}
