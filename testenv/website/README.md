@@ -22,14 +22,34 @@ python testenv/website/tools/generate_documents.py
 
 ## Deploy on Vercel
 
-Two Vercel projects, both without a framework or build command:
+Both sites run on the Vercel account `noarobleslevy-7996`, as two projects without a framework or build command:
 
-| Vercel project | Root directory | Domains |
+| Vercel project | Folder | Domains | Test URL |
+|---|---|---|---|
+| `badsecurityinc-website` | `testenv/website` | `badsecurityinc.be`, `www.badsecurityinc.be` | https://badsecurityinc-website.vercel.app |
+| `badsecuritylnc-lookalike` | `testenv/lookalike` | `badsecuritylnc.be` | https://badsecuritylnc-lookalike.vercel.app |
+
+They are deployed with the Vercel CLI, using a separate login folder so it does not interfere with other Vercel accounts on the same machine:
+
+```bash
+vercel --global-config ~/.vercel-qnsentry login          # once, with the QN-Sentry account
+cd testenv/website   && vercel --global-config ~/.vercel-qnsentry deploy --prod
+cd testenv/lookalike && vercel --global-config ~/.vercel-qnsentry deploy --prod
+```
+
+`.vercelignore` keeps this README and `tools/` off the site: they list every planted value.
+
+### DNS at one.com
+
+The domains stay on the one.com nameservers (the VM, MX, SPF and DMARC records live there too). Replace the parking records with:
+
+| Name | Type | Value |
 |---|---|---|
-| `badsecurityinc-website` | `testenv/website` | `www.badsecurityinc.be`, `badsecurityinc.be` |
-| `badsecuritylnc-lookalike` | `testenv/lookalike` | `badsecuritylnc.be` |
+| `badsecurityinc.be` | `A` | `76.76.21.21` |
+| `www.badsecurityinc.be` | `A` | `76.76.21.21` |
+| `badsecuritylnc.be` | `A` | `76.76.21.21` |
 
-After adding a domain, Vercel shows the DNS records to create at one.com (usually `A @ 76.76.21.21` and `CNAME www cname.vercel-dns.com`). Vercel then requests a Let's Encrypt certificate automatically, which makes both domains visible in Certificate Transparency logs (needed for #10).
+Vercel then requests a Let's Encrypt certificate automatically, which makes the domains visible in Certificate Transparency logs (needed for #10).
 
 ## Planted findings
 
