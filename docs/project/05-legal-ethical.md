@@ -20,7 +20,7 @@ The command-line tools of the modules carry a similar warning, e.g. "Only scan d
 
 QN-Sentry only performs reconnaissance: it collects publicly available information and detects services. It **never** exploits vulnerabilities, attempts logins, tests whether leaked passwords still work, or performs denial-of-service testing. Because it cannot prove that something is directly exploitable, the `critical` severity is rarely used (data contract 10.2).
 
-Per module, what touches the client's systems and how it is limited (status per 30/09: Phishing and Breach are merged, Document Metadata #43 and certificates #49 are in review, Attack Surface is planned):
+Per module, what touches the client's systems and how it is limited (status per 30/09: Phishing, Breach and Document Metadata are merged, certificates #49 is in review, Attack Surface is planned):
 
 | Module | What it does | Contact with the client's systems | Limits |
 |---|---|---|---|
@@ -46,7 +46,7 @@ Several modules process personal data. The table below lists which data, where i
 |---|---|---|
 | **Lawfulness** | In a real deployment, processing rests on the client's legitimate interest in securing its organisation (GDPR art. 6(1)(f)). Employees are informed that their business addresses are checked (art. 13 and 14). | Organisational |
 | **Purpose limitation** | Personal data is used solely to assess the organisation's security exposure. | In place |
-| **Data minimisation** | The Breach module stores only the email address, the breach name, the date and the *kinds* of data exposed, never passwords or other leaked data. Downloaded documents are kept in a temporary folder only during the analysis and then deleted. | Breach: in place (#11); documents: in review (#43) |
+| **Data minimisation** | The Breach module stores only the email address, the breach name, the date and the *kinds* of data exposed, never passwords or other leaked data. Downloaded documents are kept in a temporary folder only during the analysis and then deleted. | In place (#11, #7) |
 | **Storage limitation** | Scan results are automatically deleted after a retention period of 90 days (configurable). | Planned: #46 |
 | **Security** | The database and task queue are only reachable inside the Docker network; containers run as a non-root user; secrets live in `.env`, never in Git. | In place (#33) |
 | | Login with roles, so each client only sees their own data. | Planned: #20 |
