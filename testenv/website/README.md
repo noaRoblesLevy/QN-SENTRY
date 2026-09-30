@@ -41,15 +41,21 @@ cd testenv/lookalike && vercel --global-config ~/.vercel-qnsentry deploy --prod
 
 ### DNS at one.com
 
-The domains stay on the one.com nameservers (the VM, MX, SPF and DMARC records live there too). Replace the parking records with:
+The domains stay on the one.com nameservers. All records of the test environment:
 
-| Name | Type | Value |
-|---|---|---|
-| `badsecurityinc.be` | `A` | `76.76.21.21` |
-| `www.badsecurityinc.be` | `A` | `76.76.21.21` |
-| `badsecuritylnc.be` | `A` | `76.76.21.21` |
+| Name | Type | Value | Purpose | Status |
+|---|---|---|---|---|
+| `badsecurityinc.be` | `A` | `76.76.21.21` | Website on Vercel | ✅ 30/09 |
+| `www.badsecurityinc.be` | `A` | `76.76.21.21` | Website on Vercel | ✅ 30/09 |
+| `badsecuritylnc.be` | `A` | `76.76.21.21` | Lookalike page on Vercel, gets a TLS certificate (#10) | ✅ 30/09 |
+| `badsecuritylnc.be` | `MX` | `10 mail.badsecuritylnc.be` | Lookalike can receive email: `high` in #9 | ✅ 30/09 |
+| `badsecurityinc.be` | `TXT` | `v=spf1 +all` | Every server may send as the company: `high` in #29 | ✅ 30/09 |
+| `_dmarc.badsecurityinc.be` | `TXT` | `v=DMARC1; p=none` | Spoofed mail is delivered: `high` in #29 | ✅ 30/09 |
+| `dev.badsecurityinc.be` | `A` | IP of the test VM | Staging site and decoy SSH (`testenv/vm/`) | ⏳ with the VM |
 
-Vercel then requests a Let's Encrypt certificate automatically, which makes the domains visible in Certificate Transparency logs (needed for #10).
+The MX record only has to exist: no mail server runs on the lookalike. Vercel requests a Let's Encrypt certificate automatically for its domains, which makes them visible in Certificate Transparency logs (needed for #10).
+
+Checked on 30/09: the phishing module reports the lookalike, the SPF record and the DMARC policy as `high`, as planned.
 
 ## Planted findings
 
