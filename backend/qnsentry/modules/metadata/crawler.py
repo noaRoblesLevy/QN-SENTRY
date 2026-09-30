@@ -1,13 +1,10 @@
 """Find the pages and public documents of the client's website with katana (issue #7)."""
 
 import json
-import logging
 import shutil
 import subprocess
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urlparse
-
-log = logging.getLogger(__name__)
 
 DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp"}
 
@@ -44,15 +41,28 @@ def crawl(urls: list[str]) -> list[str]:
     ]
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=CRAWL_SECONDS + 60)
-    except subprocess.TimeoutExpired:
-        log.warning("katana did not stop after %s s", CRAWL_SECONDS + 60)
-        return []
-    return parse_katana_output(result.stdout)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f"katana did not finish within {CRAWL_SECONDS + 60} s") from error
+
+    found, errors = parse_katana_output(result.stdout)
+    if not found:
+        # Not even the start page answered (site offline, DNS or TLS error). Reporting
+        # "0 findings" would look like a clean site, so the module fails instead
+        # (data contract 10.3.1: total failure). katana still exits with 0 then.
+        stderr = result.stderr.strip().splitlines()
+        reason = errors[0] if errors else stderr[-1] if stderr else f"exit code {result.returncode}"
+        raise RuntimeError(f"The website {', '.join(urls)} could not be crawled: {reason}")
+    return found
 
 
-def parse_katana_output(output: str) -> list[str]:
-    """The endpoints from katana's JSON lines, in the order found, without duplicates."""
+def parse_katana_output(output: str) -> tuple[list[str], list[str]]:
+    """The endpoints katana reached, in the order found and without duplicates, and its errors.
+
+    katana also writes a JSON line for a request that failed, with an "error" field
+    and no response; those endpoints were never reached, so they are not returned.
+    """
     found: list[str] = []
+    errors: list[str] = []
     # split("\n"), not splitlines(): splitlines() also breaks on characters like U+0085
     # that can appear inside a JSON string, which would cut a JSON line in pieces
     for line in output.split("\n"):
@@ -60,12 +70,17 @@ def parse_katana_output(output: str) -> list[str]:
         if not line:
             continue
         try:
-            endpoint = json.loads(line).get("request", {}).get("endpoint")
+            entry = json.loads(line)
+            endpoint = entry.get("request", {}).get("endpoint")
+            error = entry.get("error")
         except (ValueError, AttributeError):
             endpoint = line if line.startswith(("http://", "https://")) else None
-        if endpoint and endpoint not in found:
+            error = None
+        if error:
+            errors.append(f"{endpoint}: {error}" if endpoint else str(error))
+        elif endpoint and endpoint not in found:
             found.append(endpoint)
-    return found
+    return found, errors
 
 
 def document_urls(urls: list[str], allowed_hosts: set[str]) -> list[str]:

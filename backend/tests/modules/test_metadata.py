@@ -159,17 +159,33 @@ def test_katana_output_is_parsed_without_duplicates():
         ]
     )
 
-    assert parse_katana_output(output) == [
-        "https://www.badsecurityinc.be/downloads.html",
-        "https://www.badsecurityinc.be/files/budget-2026.xlsx",
-    ]
+    assert parse_katana_output(output) == (
+        [
+            "https://www.badsecurityinc.be/downloads.html",
+            "https://www.badsecurityinc.be/files/budget-2026.xlsx",
+        ],
+        [],
+    )
 
 
 def test_katana_output_with_line_separators_inside_json_strings():
     # Office files in a response body can contain U+0085, which str.splitlines() splits on
     line = '{"request": {"endpoint": "https://www.badsecurityinc.be/files/deck.pptx"}, "note": "a\u0085b"}'
 
-    assert parse_katana_output(line) == ["https://www.badsecurityinc.be/files/deck.pptx"]
+    assert parse_katana_output(line) == (["https://www.badsecurityinc.be/files/deck.pptx"], [])
+
+
+def test_failed_requests_are_errors_not_endpoints():
+    # What katana 1.7.0 prints for a host that does not exist (and it still exits with 0)
+    line = (
+        '{"request":{"method":"GET","endpoint":"https://bestaat-niet.invalid"},'
+        '"error":"Get \\"https://bestaat-niet.invalid\\": cause=\\"no address found for host\\""}'
+    )
+
+    found, errors = parse_katana_output(line)
+
+    assert found == []
+    assert errors == ['https://bestaat-niet.invalid: Get "https://bestaat-niet.invalid": cause="no address found for host"']
 
 
 def test_only_documents_on_the_clients_own_hosts_are_kept():
@@ -232,6 +248,48 @@ def test_missing_tools_fail_the_module(monkeypatch):
     monkeypatch.setattr(crawler.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError, match="katana is not installed"):
         crawler.crawl([SITE])
+
+
+def fake_katana(monkeypatch, stdout="", stderr="", returncode=0, timeout=False):
+    def run(command, **kwargs):
+        if timeout:
+            raise crawler.subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+        return crawler.subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+    monkeypatch.setattr(crawler.shutil, "which", lambda name: "/usr/local/bin/katana")
+    monkeypatch.setattr(crawler.subprocess, "run", run)
+
+
+def test_unreachable_website_fails_instead_of_looking_clean(monkeypatch):
+    # Site offline, DNS or TLS error: "0 findings" would look like a clean site.
+    # katana reports the failed start URL as a JSON line with "error" and exits with 0.
+    fake_katana(
+        monkeypatch,
+        stdout='{"request": {"endpoint": "https://bestaat-niet.invalid"}, "error": "no address found for host"}\n',
+    )
+
+    with pytest.raises(RuntimeError, match="could not be crawled: .*no address found for host"):
+        crawler.crawl(["https://bestaat-niet.invalid"])
+
+
+def test_katana_error_message_on_stderr_is_used_when_there_is_no_output(monkeypatch):
+    fake_katana(monkeypatch, stderr="[FTL] Could not create runner", returncode=1)
+
+    with pytest.raises(RuntimeError, match="Could not create runner"):
+        crawler.crawl([SITE])
+
+
+def test_katana_timeout_fails_the_module(monkeypatch):
+    fake_katana(monkeypatch, timeout=True)
+
+    with pytest.raises(RuntimeError, match="did not finish"):
+        crawler.crawl([SITE])
+
+
+def test_crawl_returns_the_endpoints_katana_found(monkeypatch):
+    fake_katana(monkeypatch, stdout=f'{{"request": {{"endpoint": "{SITE}/files/budget-2026.xlsx"}}}}\n')
+
+    assert crawler.crawl([SITE]) == [f"{SITE}/files/budget-2026.xlsx"]
 
 
 def test_read_metadata_of_no_files_needs_no_exiftool():
