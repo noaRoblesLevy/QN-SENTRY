@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     breach_source: str = "local"
     # JSON dataset for the local source; empty = the bundled BadSecurityInc test data
     breach_dataset: str | None = None
+    # Have I Been Pwned (#13): API key (never commit it) and seconds between requests.
+    # 6 seconds fits the smallest plan (10 requests per minute); lower it for a bigger plan.
+    hibp_api_key: str | None = None
+    hibp_min_interval_seconds: float = 6.0
 
     @property
     def database_url(self) -> URL:

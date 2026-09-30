@@ -40,11 +40,11 @@ class BreachModule(Module):
         for email in sorted({e.strip().lower() for e in context.emails if e.strip()}):
             breaches = source.lookup(email)
             if breaches:
-                findings.append(to_finding(email, breaches, origin="found publicly"))
+                findings.append(to_finding(email, breaches, origin="found publicly", attribution=source.attribution))
         return findings
 
 
-def to_finding(email: str, breaches: list[Breach], origin: str) -> Finding:
+def to_finding(email: str, breaches: list[Breach], origin: str, attribution: str | None = None) -> Finding:
     exposed = sorted({data for breach in breaches for data in breach.data_classes})
     sensitive = sorted(set(exposed) & SENSITIVE_DATA)
     count = len(breaches)
@@ -90,5 +90,6 @@ def to_finding(email: str, breaches: list[Breach], origin: str) -> Finding:
                 for b in sorted(breaches, key=lambda b: b.date, reverse=True)
             ],
             "exposed_data": exposed,
+            **({"source": attribution} if attribution else {}),
         },
     )
