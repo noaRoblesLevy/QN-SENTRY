@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { api } from '../api'
+import { FileDown } from 'lucide-react'
+import { api, reportUrl } from '../api'
 import FindingsTable from '../components/FindingsTable'
 import ModuleProgress from '../components/ModuleProgress'
 import PageHeader from '../components/PageHeader'
@@ -53,6 +54,7 @@ function ScanView({ scanId }: { scanId: number }) {
 
   const { scan, findings } = data
   const active = isScanActive(scan.status)
+  const report = reportUrl(scan.id)
   const visible = findings.filter(
     (f) => (moduleFilter === ALL || f.module === moduleFilter) && (severityFilter === ALL || f.severity === severityFilter),
   )
@@ -73,6 +75,16 @@ function ScanView({ scanId }: { scanId: number }) {
               Started <RelativeTime iso={scan.created_at} />
             </span>
           </>
+        }
+        actions={
+          // The report exists once the scan has finished (issue #17)
+          !active &&
+          report && (
+            <a className="button button-primary" href={report} download>
+              <FileDown size={16} strokeWidth={1.5} aria-hidden="true" />
+              Download report
+            </a>
+          )
         }
       />
 

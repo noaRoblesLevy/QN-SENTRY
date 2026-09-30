@@ -1,7 +1,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from kombu.exceptions import OperationalError as QueueUnavailable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from qnsentry.config import settings
 from qnsentry.db.models import Domain, Finding, ModuleRun, Scan, ScanStatus
 from qnsentry.db.session import get_db
 from qnsentry.modules import MODULES
+from qnsentry.report.pdf import ReportData, ReportFinding, ReportModule, build_report
 from qnsentry.worker.tasks import run_scan
 
 logger = logging.getLogger(__name__)
@@ -95,3 +96,47 @@ def get_scan(scan_id: int, db: Session = Depends(get_db)) -> ScanOut:
 @router.get("/scans/{scan_id}/findings", response_model=list[FindingOut])
 def get_findings(scan_id: int, db: Session = Depends(get_db)) -> list[Finding]:
     return get_scan_or_404(db, scan_id).findings
+
+
+@router.get(
+    "/scans/{scan_id}/report.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}, "description": "The PDF report"}},
+)
+def get_report(scan_id: int, db: Session = Depends(get_db)) -> Response:
+    """PDF summary report of a finished scan, for management (issue #17)."""
+    scan = get_scan_or_404(db, scan_id)
+    if scan.status in (ScanStatus.QUEUED, ScanStatus.RUNNING):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The report is available when the scan has finished."
+        )
+
+    pdf = build_report(report_data(scan))
+    filename = f"qn-sentry-{scan.domain.name}-scan-{scan.id}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def report_data(scan: Scan) -> ReportData:
+    return ReportData(
+        client=scan.domain.client.name,
+        domain=scan.domain.name,
+        scan_id=scan.id,
+        status=scan.status,
+        started_at=scan.started_at or scan.created_at,
+        generated_at=datetime.now(UTC),
+        modules=[ReportModule(module=run.module, status=run.status, error=run.error) for run in scan.module_runs],
+        findings=[
+            ReportFinding(
+                module=f.module,
+                severity=f.severity,
+                title=f.title,
+                description=f.description,
+                asset=f.asset,
+            )
+            for f in scan.findings
+        ],
+    )

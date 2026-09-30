@@ -146,6 +146,7 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `POST` | `/api/domains/{id}/scans` | Start a scan for a domain |
 | `GET` | `/api/scans/{id}` | Get the scan status and the status per module |
 | `GET` | `/api/scans/{id}/findings` | Get the findings of a scan |
+| `GET` | `/api/scans/{id}/report.pdf` | Download the PDF summary report of a finished scan (#17) |
 
 Example response of `GET /api/scans/7`:
 
@@ -175,7 +176,6 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | Endpoint | Issue |
 |---|---|
 | Approve a domain on the target allowlist | #3 |
-| Download the PDF report of a scan | #17 |
 | Log in | #20 |
 
 ### 10.5.3 Request and Response Bodies
@@ -189,6 +189,7 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
 | `GET /api/scans/{id}` | | `200` | See the example above |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
+| `GET /api/scans/{id}/report.pdf` | | `200` | `application/pdf`, as a download; `409` while the scan is `queued` or `running` |
 
 Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
 
