@@ -8,7 +8,15 @@ export type ScanStatus = 'queued' | 'running' | 'completed' | 'partial' | 'faile
 
 export type ModuleStatus = 'pending' | 'running' | 'completed' | 'failed'
 
-export type ScanSummary = {
+// Risk score (data contract 10.7): null while a scan runs, when it failed, or without scans
+export type RiskLevel = 'low' | 'moderate' | 'high' | 'very_high'
+
+export type Risk = {
+  risk_score: number | null
+  risk_level: RiskLevel | null
+}
+
+export type ScanSummary = Risk & {
   id: number
   status: ScanStatus
   created_at: string
@@ -21,7 +29,7 @@ export type Domain = {
   scans?: ScanSummary[]
 }
 
-export type Client = {
+export type Client = Risk & {
   id: number
   name: string
   domains: Domain[]
@@ -34,7 +42,7 @@ export type ModuleRun = {
   error: string | null
 }
 
-export type Scan = {
+export type Scan = Risk & {
   id: number
   domain: string
   status: ScanStatus

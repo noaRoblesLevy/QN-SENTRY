@@ -182,12 +182,12 @@ These are added by their own issues and are not part of the walking skeleton (#1
 
 | Endpoint | Request body | Success | Response |
 |---|---|---|---|
-| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`) |
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`), `risk_score`, `risk_level` (10.7) |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
-| `GET /api/clients/{id}` | | `200` | The client; every domain also has `scans` (`id`, `status`, `created_at`), newest first |
+| `GET /api/clients/{id}` | | `200` | The client with `risk_score` and `risk_level`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`), newest first |
 | `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be"}` | `201` | The new domain: `id`, `name` |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
-| `GET /api/scans/{id}` | | `200` | See the example above |
+| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score` and `risk_level` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
 
 Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
@@ -212,3 +212,41 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 - **Name normalisation:** how names with multiple words, hyphens or accents are converted to email addresses (e.g. "Sofie Van den Broeck" becomes `sofie.vandenbroeck` or `sofie.van.den.broeck`; "Gérard" becomes `gerard`). The Metadata module (#8) and the Breach module (#12) must use the same rule.
 - **Descriptions:** does each module write its own `description`, or is there one fixed text per `type` that is reused?
 - **Combined findings:** some findings are more serious in combination (e.g. a permissive SPF record together with DMARC `p=none`). Does the module decide this, or does the risk score (#19) look at combinations?
+
+## 10.7 Risk Score
+
+One number from 0 to 100 that summarises a scan for management (#19). **Proposal, to be agreed in review**; the values live in one place (`backend/qnsentry/risk.py`).
+
+1. Every finding adds points by severity:
+
+| Severity | Points |
+|---|---|
+| `critical` | 25 |
+| `high` | 10 |
+| `medium` | 4 |
+| `low` | 1 |
+| `info` | 0 |
+
+2. `score = 100 × (1 − e^(−points / 50))`, rounded.
+
+This gives diminishing returns: the first serious findings raise the score the most, the score never exceeds 100, and adding a finding never lowers it. A plain sum would reach 100 after a few findings and stop telling anything apart; an average would drop when harmless findings are added.
+
+| Score | Level (`risk_level`) |
+|---|---|
+| 0 to 24 | `low` |
+| 25 to 49 | `moderate` |
+| 50 to 74 | `high` |
+| 75 to 100 | `very_high` |
+
+| Example | Points | Score |
+|---|---|---|
+| Only `info` findings | 0 | 0, low |
+| One `high` | 10 | 18, low |
+| One `critical` | 25 | 39, moderate |
+| Test environment on 30/09: 6 high, 2 medium, 1 low | 69 | 75, very high |
+
+Rules:
+- **Scan:** only a `completed` or `partial` scan has a score. While a scan runs the findings are incomplete, and a `failed` scan would look safe because it found little: both return `null`.
+- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score.
+- The score is **computed from the stored findings** when it is requested, not stored separately, so it always matches the findings. Changing the weights therefore also changes the score of older scans.
+

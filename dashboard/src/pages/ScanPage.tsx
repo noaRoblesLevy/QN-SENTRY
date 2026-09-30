@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader'
 import Panel from '../components/Panel'
 import RelativeTime from '../components/RelativeTime'
 import Select from '../components/Select'
+import RiskBadge from '../components/RiskBadge'
 import SeverityBadge from '../components/SeverityBadge'
 import StatPanel from '../components/StatPanel'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
@@ -84,6 +85,12 @@ function ScanView({ scanId }: { scanId: number }) {
       )}
 
       <div className="stat-grid">
+        {/* Risk score (#19): computed by the backend once the scan has finished */}
+        <div className="stat-panel">
+          <div className="stat-label">Risk score</div>
+          <div className="stat-value">{scan.risk_score ?? '-'}</div>
+          <RiskBadge risk={scan} showScore={false} />
+        </div>
         <StatPanel label="Findings" value={findings.length} />
         {SEVERITIES.map((severity) => (
           <StatPanel

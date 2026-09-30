@@ -46,6 +46,9 @@ class ScanSummary(BaseModel):
     id: int
     status: ScanStatus
     created_at: datetime
+    # Risk score (#19); null while the scan runs or when it failed
+    risk_score: int | None = None
+    risk_level: str | None = None
 
 
 class DomainOut(BaseModel):
@@ -65,6 +68,9 @@ class ClientOut(BaseModel):
     id: int
     name: str
     domains: list[DomainOut]
+    # Risk of the riskiest domain (#19); null when no domain has a finished scan
+    risk_score: int | None = None
+    risk_level: str | None = None
 
 
 class ClientDetail(ClientOut):
@@ -86,6 +92,9 @@ class ScanOut(BaseModel):
     status: ScanStatus
     created_at: datetime
     modules: list[ModuleRunOut]
+    # Risk score (#19); null while the scan runs or when it failed
+    risk_score: int | None = None
+    risk_level: str | None = None
 
 
 class FindingOut(BaseModel):

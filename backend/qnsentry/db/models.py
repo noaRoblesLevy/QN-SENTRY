@@ -5,6 +5,8 @@ from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from qnsentry.risk import Risk, compute_risk
+
 
 class Base(DeclarativeBase):
     pass
@@ -57,6 +59,21 @@ class Client(Base):
         back_populates="client", cascade="all, delete-orphan", order_by="Domain.name"
     )
 
+    @property
+    def risk(self) -> Risk | None:
+        """The client's risk: that of its riskiest domain, from each domain's latest scored scan."""
+        latest = [domain.latest_risk for domain in self.domains]
+        scored = [risk for risk in latest if risk is not None]
+        return max(scored, key=lambda risk: risk.score) if scored else None
+
+    @property
+    def risk_score(self) -> int | None:
+        return self.risk.score if self.risk else None
+
+    @property
+    def risk_level(self) -> str | None:
+        return self.risk.level if self.risk else None
+
 
 class Domain(Base):
     __tablename__ = "domains"
@@ -76,6 +93,11 @@ class Domain(Base):
     scans: Mapped[list["Scan"]] = relationship(
         back_populates="domain", cascade="all, delete-orphan", order_by="Scan.id.desc()"
     )
+
+    @property
+    def latest_risk(self) -> Risk | None:
+        """Risk of the newest scan that has a score (running and failed scans have none)."""
+        return next((scan.risk for scan in self.scans if scan.risk is not None), None)
 
 
 class Scan(Base):
@@ -102,6 +124,25 @@ class Scan(Base):
     findings: Mapped[list["Finding"]] = relationship(
         back_populates="scan", cascade="all, delete-orphan", order_by="Finding.id"
     )
+
+    @property
+    def risk(self) -> Risk | None:
+        """Risk score of the scan (#19), computed from its findings.
+
+        Only for a finished scan: while it runs the findings are incomplete, and a failed
+        scan has too few findings to mean anything (it would look safe).
+        """
+        if self.status not in (ScanStatus.COMPLETED, ScanStatus.PARTIAL):
+            return None
+        return compute_risk(finding.severity for finding in self.findings)
+
+    @property
+    def risk_score(self) -> int | None:
+        return self.risk.score if self.risk else None
+
+    @property
+    def risk_level(self) -> str | None:
+        return self.risk.level if self.risk else None
 
     def mark_failed(self, reason: str) -> None:
         """End the scan as failed; modules that had not finished get `reason` as error."""
