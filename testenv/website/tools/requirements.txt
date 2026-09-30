@@ -1,0 +1,6 @@
+# Only needed to regenerate the documents in testenv/website/files/
+python-docx>=1.1
+openpyxl>=3.1
+python-pptx>=1.0
+reportlab>=4.0
+pypdf>=5.0

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>BadSecurityInc | Customer portal</title>
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        margin: 0;
+        background: #f6f8fb;
+        color: #1e2430;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      .box {
+        max-width: 480px;
+        margin: 16px;
+        padding: 32px;
+        background: #fff;
+        border: 1px solid #e2e6ee;
+        border-radius: 8px;
+      }
+      .logo {
+        color: #14305a;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .logo span {
+        color: #1f6fd1;
+      }
+      .warning {
+        margin-top: 24px;
+        padding: 12px;
+        background: #fff4d6;
+        color: #6b4e00;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Lookalike domain badsecuritylnc.be (lowercase L instead of i), part of the QN-Sentry
+      test environment. It only needs to exist, have DNS records and a TLS certificate so
+      the phishing module can detect it. It deliberately has no form: it must never be
+      able to collect anything.
+    -->
+    <div class="box">
+      <div class="logo">BadSecurity<span>Inc</span></div>
+      <h1>Customer portal</h1>
+      <p>The customer portal is being moved. Please try again later.</p>
+      <div class="warning">
+        This is a <strong>test lookalike domain</strong> of the fictitious company BadSecurityInc, used to test the
+        phishing detection of QN-Sentry (a student project at Karel de Grote University of Applied Sciences). It
+        collects no data.
+      </div>
+    </div>
+  </body>
+</html>
