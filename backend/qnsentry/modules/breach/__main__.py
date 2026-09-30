@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("emails", nargs="*", help="email addresses to check")
     parser.add_argument("--from-url", help="also check the mailto: addresses on this web page")
-    parser.add_argument("--source", help="breach source: local (default) or hibp")
+    parser.add_argument("--source", default="local", help="breach source: local (default) or hibp")
     parser.add_argument("--dataset", help="JSON dataset for the local source (default: the BadSecurityInc test data)")
     parser.add_argument("--json", action="store_true", help="print the findings in the data contract format")
     args = parser.parse_args(argv)

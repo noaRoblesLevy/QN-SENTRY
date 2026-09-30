@@ -12,7 +12,6 @@ name, date and the *kinds* of data exposed, never the leaked data itself.
 """
 
 import json
-import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,10 +62,22 @@ class LocalDatasetSource(BreachSource):
 
 
 def get_breach_source(name: str | None = None, dataset: str | None = None) -> BreachSource:
-    """The source chosen by configuration: BREACH_SOURCE (default "local") and BREACH_DATASET."""
-    name = (name or os.environ.get("BREACH_SOURCE") or "local").lower()
+    """The source to use: `name` and `dataset` when given (the CLI), otherwise the
+    configuration in Settings: BREACH_SOURCE (default "local") and BREACH_DATASET."""
+    if name is None:
+        settings = _settings()
+        name, dataset = settings.breach_source, dataset or settings.breach_dataset
+    name = name.lower()
     if name == "local":
-        return LocalDatasetSource(dataset or os.environ.get("BREACH_DATASET") or DEFAULT_DATASET)
+        return LocalDatasetSource(dataset or DEFAULT_DATASET)
     if name == "hibp":
         raise RuntimeError("The Have I Been Pwned source is not available yet (issue #13); use BREACH_SOURCE=local")
     raise ValueError(f"Unknown breach source {name!r}; expected 'local' or 'hibp'")
+
+
+def _settings():
+    # Imported here, not at the top: Settings needs the database configuration, which the
+    # command-line tool and the tests do not have
+    from qnsentry.config import settings
+
+    return settings

@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import asdict
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,22 +79,30 @@ def test_bundled_dataset_contains_the_planted_test_environment_breaches():
 # ---------- Choosing the source through configuration ----------
 
 
-def test_source_is_chosen_through_configuration(monkeypatch, tmp_path):
-    monkeypatch.delenv("BREACH_SOURCE", raising=False)
-    monkeypatch.delenv("BREACH_DATASET", raising=False)
+def test_source_is_chosen_through_settings(monkeypatch, tmp_path):
+    config = SimpleNamespace(breach_source="local", breach_dataset=None)
+    monkeypatch.setattr("qnsentry.modules.breach.sources._settings", lambda: config)
     assert isinstance(get_breach_source(), LocalDatasetSource)
 
-    path = write_dataset(tmp_path, {"breaches": {}, "accounts": {}})
-    monkeypatch.setenv("BREACH_DATASET", path)
+    config.breach_dataset = write_dataset(tmp_path, {"breaches": {}, "accounts": {}})
     assert get_breach_source().lookup("jan.peeters@badsecurityinc.be") == []
 
-    monkeypatch.setenv("BREACH_SOURCE", "hibp")
+    config.breach_source = "hibp"
     with pytest.raises(RuntimeError, match="#13"):
         get_breach_source()
 
-    monkeypatch.setenv("BREACH_SOURCE", "something-else")
+    config.breach_source = "something-else"
     with pytest.raises(ValueError, match="Unknown breach source"):
         get_breach_source()
+
+
+def test_explicit_source_does_not_need_the_settings(monkeypatch):
+    # The CLI passes the source itself, so it works without a database configuration
+    def no_settings():
+        raise AssertionError("settings should not be loaded")
+
+    monkeypatch.setattr("qnsentry.modules.breach.sources._settings", no_settings)
+    assert isinstance(get_breach_source("local"), LocalDatasetSource)
 
 
 # ---------- Findings ----------
@@ -120,6 +129,14 @@ def test_breach_without_passwords_is_medium():
 
     assert finding.severity == Severity.MEDIUM
     assert finding.title == "sofie.maes@badsecurityinc.be appears in 1 data breach"
+
+
+def test_breach_of_only_the_address_is_low():
+    spam_list = Breach("PretendSpamList", "2022-11-30", ("Email addresses",))
+
+    assert to_finding("info@badsecurityinc.be", [spam_list], origin="found publicly").severity == Severity.LOW
+    # As soon as a second breach leaked more, the address is medium again
+    assert to_finding("info@badsecurityinc.be", [spam_list, FORUM], origin="found publicly").severity == Severity.MEDIUM
 
 
 # ---------- The module ----------

@@ -23,6 +23,8 @@ SENSITIVE_DATA = {
     "Credit cards",
     "Bank account numbers",
 }
+# A breach that exposed nothing but the address itself is low
+ONLY_ADDRESS = {"Email addresses"}
 
 
 class BreachModule(Module):
@@ -56,6 +58,14 @@ def to_finding(email: str, breaches: list[Breach], origin: str) -> Finding:
             "company accounts, an attacker can try it on the company's email, VPN or other "
             "systems (credential stuffing). Ask the employee to change the password everywhere it "
             "was used and turn on multi-factor authentication."
+        )
+    elif set(exposed) <= ONLY_ADDRESS:
+        # Only the address itself leaked (e.g. a spam list): it barely helps an attacker
+        severity = Severity.LOW
+        description = (
+            "This business email address appears in a leaked list of email addresses. Nothing "
+            "else about the employee leaked, but the address is known to be real, so it will "
+            "receive more spam and phishing."
         )
     else:
         severity = Severity.MEDIUM
