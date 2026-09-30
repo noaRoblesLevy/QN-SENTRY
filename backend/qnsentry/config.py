@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     # Longest a scan may take; a scan still queued or running after this is stuck
     scan_timeout_minutes: int = 120
+    # Breach module (#11): "local" (test dataset) or "hibp" (Have I Been Pwned, #13)
+    breach_source: str = "local"
+    # JSON dataset for the local source; empty = the bundled BadSecurityInc test data
+    breach_dataset: str | None = None
 
     @property
     def database_url(self) -> URL:
