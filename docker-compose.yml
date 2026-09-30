@@ -45,6 +45,18 @@ services:
       redis:
         condition: service_healthy
 
+  # Puts periodic tasks on the queue (e.g. the daily GDPR clean-up, #46); the worker runs them.
+  # It needs no OSINT tools, so it uses the lighter API image. Exactly one beat may run.
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    command: ["celery", "-A", "qnsentry.worker.celery_app", "beat", "--loglevel=info", "--schedule", "/tmp/celerybeat-schedule"]
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
   dashboard:
     build:
       context: ./dashboard
