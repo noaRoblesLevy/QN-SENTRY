@@ -10,5 +10,5 @@
 *.ico  binary
 
 # Shell scripts run on Linux (install script #18, containers): always LF, also on Windows.
-# With CRLF, bash fails with errors like "$'': command not found".
+# With CRLF, bash fails with errors like "$'\r': command not found".
 *.sh text eol=lf
