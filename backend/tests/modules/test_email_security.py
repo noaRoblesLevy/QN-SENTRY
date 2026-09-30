@@ -7,10 +7,14 @@ import pytest
 from qnsentry.db.models import Severity
 from qnsentry.modules.phishing import email_security
 from qnsentry.modules.phishing.email_security import (
+    SPF_LOOKUP_LIMIT,
+    LookupFailed,
     check_email_security,
+    count_spf_lookups,
     evaluate_dkim,
     evaluate_dmarc,
     evaluate_spf,
+    evaluate_spf_lookups,
     parse_dmarc,
     spf_all_qualifier,
 )
@@ -206,6 +210,123 @@ def test_every_lookup_failing_raises(monkeypatch):
 
     with pytest.raises(RuntimeError, match="the SPF and DMARC lookups failed"):
         check_email_security(DOMAIN, nameservers=["192.0.2.53"])
+
+
+# ---------- SPF lookup limit (#44) ----------
+
+
+def txt_from(answers: dict[str, list[str]]):
+    """get_txt for count_spf_lookups: answers per name, [] for names that do not exist."""
+    asked = []
+
+    def get_txt(name):
+        asked.append(name)
+        return answers.get(name, [])
+
+    get_txt.asked = asked
+    return get_txt
+
+
+def test_terms_that_need_no_lookup_are_not_counted():
+    record = "v=spf1 ip4:192.0.2.0/24 ip6:2001:db8::/32 -all"
+    assert count_spf_lookups(DOMAIN, record, txt_from({})).count == 0
+
+
+def test_lookups_are_counted_through_included_records():
+    answers = {
+        "spf.protection.outlook.com": ["v=spf1 include:spf-a.outlook.com include:spf-b.outlook.com -all"],
+        "spf-a.outlook.com": ["v=spf1 ip4:192.0.2.0/24 -all"],
+        "spf-b.outlook.com": ["v=spf1 a mx -all"],
+        "_spf.newsletter.example": ["v=spf1 exists:%{i}.check.example -all"],
+    }
+    record = "v=spf1 a mx:mail.badsecurityinc.be include:spf.protection.outlook.com ~include:_spf.newsletter.example -all"
+
+    lookups = count_spf_lookups(DOMAIN, record, txt_from(answers))
+
+    # a, mx, include, include (own record) + 2 includes + a, mx + exists (included records)
+    assert lookups.count == 9
+    assert lookups.followed == [DOMAIN, "spf.protection.outlook.com", "spf-a.outlook.com", "spf-b.outlook.com", "_spf.newsletter.example"]
+    assert evaluate_spf_lookups(DOMAIN, lookups) == []
+
+
+def test_more_than_ten_lookups_makes_spf_ignored():
+    # Several mail services, each costing a few lookups
+    answers = {f"_spf.service{i}.example": ["v=spf1 a mx include:_spf.shared.example -all"] for i in range(4)}
+    answers["_spf.shared.example"] = ["v=spf1 ip4:198.51.100.0/24 -all"]
+    record = "v=spf1 " + " ".join(f"include:_spf.service{i}.example" for i in range(4)) + " -all"
+
+    lookups = count_spf_lookups(DOMAIN, record, txt_from(answers))
+    [finding] = evaluate_spf_lookups(DOMAIN, lookups)
+
+    assert lookups.count > SPF_LOOKUP_LIMIT
+    assert finding.severity == Severity.MEDIUM
+    assert finding.details["check"] == "spf_lookups"
+    assert "ignored" in finding.title and "even when it ends in '-all'" in finding.description
+
+
+def test_counting_stops_after_the_limit():
+    # A record with a thousand includes must not cause a thousand lookups
+    record = "v=spf1 " + " ".join(f"include:s{i}.example" for i in range(1000)) + " -all"
+    get_txt = txt_from({})
+
+    lookups = count_spf_lookups(DOMAIN, record, get_txt)
+
+    assert lookups.count == SPF_LOOKUP_LIMIT + 1
+    assert len(get_txt.asked) == SPF_LOOKUP_LIMIT
+
+
+def test_loop_between_included_records_does_not_hang():
+    answers = {
+        "_spf.a.example": ["v=spf1 include:_spf.b.example -all"],
+        "_spf.b.example": ["v=spf1 include:_spf.a.example -all"],
+    }
+
+    lookups = count_spf_lookups(DOMAIN, "v=spf1 include:_spf.a.example -all", txt_from(answers))
+    [finding] = evaluate_spf_lookups(DOMAIN, lookups)
+
+    assert lookups.loop == "_spf.a.example"
+    assert "loop" in finding.title
+
+
+def test_redirect_is_followed_but_ignored_when_the_record_has_all():
+    answers = {"_spf.parent.example": ["v=spf1 a mx -all"]}
+
+    assert count_spf_lookups(DOMAIN, "v=spf1 redirect=_spf.parent.example", txt_from(answers)).count == 3
+    assert count_spf_lookups(DOMAIN, "v=spf1 -all redirect=_spf.parent.example", txt_from(answers)).count == 0
+
+
+def test_too_many_lookups_is_reported_by_the_full_check(monkeypatch):
+    includes = {f"_spf{i}.example": ["v=spf1 a mx ptr -all"] for i in range(4)}
+    record = "v=spf1 " + " ".join(f"include:{name}" for name in includes) + " -all"
+    monkeypatch.setattr(
+        dns.resolver.Resolver,
+        "resolve",
+        fake_dns({DOMAIN: [record], f"_dmarc.{DOMAIN}": ["v=DMARC1; p=reject"], **includes}),
+    )
+
+    checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])]
+
+    assert checks == ["spf_lookups", "dkim"]
+
+
+def test_failing_include_lookup_skips_only_the_count(monkeypatch):
+    monkeypatch.setattr(
+        dns.resolver.Resolver,
+        "resolve",
+        fake_dns({DOMAIN: ["v=spf1 include:_spf.down.example ~all"]}, failing={"_spf.down.example"}),
+    )
+
+    checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])]
+
+    assert checks == ["spf", "dmarc", "dkim"]
+
+
+def test_lookup_failure_propagates_from_the_counter():
+    def failing(name):
+        raise LookupFailed(name)
+
+    with pytest.raises(LookupFailed):
+        count_spf_lookups(DOMAIN, "v=spf1 include:_spf.x.example -all", failing)
 
 
 def test_dkim_selectors_include_the_common_ones():

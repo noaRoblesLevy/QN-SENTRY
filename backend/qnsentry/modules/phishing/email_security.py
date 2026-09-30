@@ -4,7 +4,8 @@ Without these DNS records, or with weak ones, anyone can send email that appears
 come from the company's own domain (email spoofing). That makes phishing aimed at
 employees and customers far more convincing.
 
-- SPF (TXT on the domain): which servers may send mail for the domain
+- SPF (TXT on the domain): which servers may send mail for the domain. It may need at
+  most 10 DNS lookups, counted through its included records (#44)
 - DMARC (TXT on _dmarc.<domain>): what a receiving mail server must do with mail that
   fails the checks; only p=quarantine and p=reject actually stop spoofed mail
 - DKIM (TXT on <selector>._domainkey.<domain>): public keys to verify signed mail.
@@ -14,6 +15,8 @@ The evaluate_* functions only interpret record text, so they are tested without 
 """
 
 import logging
+import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import dns.exception
@@ -27,6 +30,10 @@ log = logging.getLogger(__name__)
 
 FINDING_TYPE = "email_security"
 DKIM_SELECTORS = ("default", "google", "selector1", "selector2", "k1", "s1", "s2", "dkim", "mail")
+# RFC 7208 4.6.4: evaluating SPF may cause at most 10 DNS lookups; above that the result is
+# a permerror and receiving mail servers ignore SPF
+SPF_LOOKUP_LIMIT = 10
+SPF_LOOKUP_TERMS = {"include", "a", "mx", "ptr", "exists", "redirect"}
 
 
 class LookupFailed(Exception):
@@ -53,12 +60,21 @@ def check_email_security(
     failed: list[str] = []
 
     spf = SpfResult()
+    spf_records: list[str] = []
     try:
-        spf = evaluate_spf(domain, txt_records(resolver, domain))
+        spf_records = [r for r in txt_records(resolver, domain) if _is_spf(r)]
+        spf = evaluate_spf(domain, spf_records)
         findings += spf.findings
     except LookupFailed as e:
         log.warning("SPF check of %s skipped: %s", domain, e)
         failed.append("SPF")
+
+    if len(spf_records) == 1:
+        try:
+            lookups = count_spf_lookups(domain, spf_records[0], lambda name: txt_records(resolver, name))
+            findings += evaluate_spf_lookups(domain, lookups)
+        except LookupFailed as e:
+            log.warning("SPF lookup count of %s skipped: %s", domain, e)
 
     try:
         dmarc_records = txt_records(resolver, f"_dmarc.{domain}")
@@ -118,7 +134,7 @@ def dkim_keys(resolver: dns.resolver.Resolver, domain: str) -> dict[str, str]:
 
 
 def evaluate_spf(domain: str, txt: list[str]) -> SpfResult:
-    spf_records = [r for r in txt if r.lower().startswith("v=spf1")]
+    spf_records = [r for r in txt if _is_spf(r)]
 
     if not spf_records:
         return SpfResult(
@@ -205,6 +221,81 @@ def evaluate_spf(domain: str, txt: list[str]) -> SpfResult:
             )
         ]
     )
+
+
+@dataclass
+class SpfLookups:
+    count: int = 0
+    # Records that were followed, in order: the domain itself, then includes and redirects
+    followed: list[str] = field(default_factory=list)
+    # A record that (indirectly) includes itself; real mail servers hit the limit on it
+    loop: str | None = None
+
+
+def count_spf_lookups(domain: str, record: str, get_txt: Callable[[str], list[str]]) -> SpfLookups:
+    """The DNS lookups evaluating `record` costs, counted through include: and redirect=.
+
+    Counts the terms that need a lookup (include, a, mx, ptr, exists, redirect); ip4, ip6
+    and all do not. Stops once the limit is exceeded, so a huge or looping tree of
+    records cannot make the check slow. `get_txt` returns the TXT records of a name.
+    """
+    result = SpfLookups()
+
+    def walk(name: str, spf: str, path: tuple[str, ...]) -> None:
+        result.followed.append(name)
+        terms = [t.lower() for t in spf.split()[1:]]
+        # redirect= only applies when the record has no 'all' (RFC 7208 6.1)
+        has_all = any(t.lstrip("+-~?") == "all" for t in terms)
+        for term in terms:
+            if result.count > SPF_LOOKUP_LIMIT or result.loop:
+                return
+            mechanism, target = _spf_term(term)
+            if mechanism not in SPF_LOOKUP_TERMS or (mechanism == "redirect" and has_all):
+                continue
+            result.count += 1
+            if result.count > SPF_LOOKUP_LIMIT:
+                return  # the verdict is known; following this include would be one lookup too many
+            if mechanism not in ("include", "redirect") or not target or "%" in target:
+                continue  # no record to follow; names with macros (%{i}) depend on the sender
+            if target in path:
+                result.loop = target
+                return
+            included = [r for r in get_txt(target) if _is_spf(r)]
+            if len(included) == 1:
+                walk(target, included[0], path + (target,))
+
+    walk(domain.lower(), record, (domain.lower(),))
+    return result
+
+
+def evaluate_spf_lookups(domain: str, lookups: SpfLookups) -> list[Finding]:
+    if lookups.count <= SPF_LOOKUP_LIMIT and not lookups.loop:
+        return []
+    if lookups.loop:
+        reason = f"the included records form a loop ({lookups.loop} includes itself)"
+    else:
+        reason = f"it needs more than {SPF_LOOKUP_LIMIT} DNS lookups"
+    return [
+        _finding(
+            domain,
+            f"SPF record on {domain} is ignored: {reason}",
+            f"Receiving mail servers do at most {SPF_LOOKUP_LIMIT} DNS lookups to evaluate an SPF "
+            "record, counting every include, a, mx, ptr, exists and redirect, also inside the "
+            f"included records. The SPF record of {domain} goes over that, so mail servers treat it "
+            "as an error (permerror) and ignore it: it does not protect against spoofed email, even "
+            "when it ends in '-all'. This often happens when several mail services are added "
+            "(Microsoft 365, a newsletter tool, a CRM). Remove services that are no longer used, or "
+            "replace includes with the ip4/ip6 ranges they stand for.",
+            Severity.MEDIUM,
+            {
+                "check": "spf_lookups",
+                "lookups": lookups.count if not lookups.loop else None,
+                "limit": SPF_LOOKUP_LIMIT,
+                "followed": lookups.followed,
+                "loop": lookups.loop,
+            },
+        )
+    ]
 
 
 def spf_all_qualifier(record: str) -> str | None:
@@ -359,6 +450,20 @@ def _finding(domain: str, title: str, description: str, severity: Severity, deta
         asset=domain,
         details=details,
     )
+
+
+def _is_spf(record: str) -> bool:
+    return record.lower().startswith("v=spf1")
+
+
+def _spf_term(term: str) -> tuple[str, str | None]:
+    """'~include:_spf.google.com' -> ('include', '_spf.google.com'); 'redirect=x.be' -> ('redirect', 'x.be')"""
+    if term.startswith("redirect="):
+        return "redirect", term.split("=", 1)[1]
+    body = term.lstrip("+-~?")
+    mechanism = re.split(r"[:/=]", body, maxsplit=1)[0]
+    target = body.split(":", 1)[1].split("/")[0] if ":" in body else None
+    return mechanism, target
 
 
 def _is_dkim_key(record: str) -> bool:
