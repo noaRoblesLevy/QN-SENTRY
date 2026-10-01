@@ -40,6 +40,19 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
     domain = db.get(Domain, domain_id)
     if domain is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain not found")
+    # Only domains the user may scan (#3) and has proven to control (#48), checked here and
+    # not only in the dashboard
+    if not domain.permission_confirmed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm that you own this domain or have written permission to scan it before scanning.",
+        )
+    if not domain.verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Verify that you control {domain.name} first: add the TXT record "
+            f"{domain.verification_record} to its DNS and click Verify.",
+        )
 
     # Only one active scan per domain: a second one would repeat the same work
     active = db.scalar(

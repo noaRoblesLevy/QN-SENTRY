@@ -71,11 +71,33 @@ class Domain(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    # Permission to scan (#3): when the user confirmed they own the domain or have written
+    # permission to scan it. Ownership (#48): when the DNS TXT record was found.
+    permission_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     client: Mapped[Client] = relationship(back_populates="domains")
     # Newest scan first, as the dashboard expects
     scans: Mapped[list["Scan"]] = relationship(
         back_populates="domain", cascade="all, delete-orphan", order_by="Scan.id.desc()"
     )
+
+    @property
+    def permission_confirmed(self) -> bool:
+        return self.permission_confirmed_at is not None
+
+    @property
+    def verified(self) -> bool:
+        return self.verified_at is not None
+
+    @property
+    def verification_record(self) -> str:
+        """The TXT record the client adds to prove ownership (#48)."""
+        # Imported here: Settings needs the configuration, which models alone do not
+        from qnsentry.config import settings
+        from qnsentry.verification import verification_record
+
+        return verification_record(self.name, settings.domain_verification_secret)
 
 
 class Scan(Base):

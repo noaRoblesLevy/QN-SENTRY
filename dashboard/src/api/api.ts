@@ -5,7 +5,11 @@ export type Api = {
   listClients(): Promise<Client[]>
   getClient(clientId: number): Promise<Client>
   createClient(name: string): Promise<Client>
-  addDomain(clientId: number, name: string): Promise<Domain>
+  /** permissionConfirmed: the user confirmed they own the domain or may scan it (#3) */
+  addDomain(clientId: number, name: string, permissionConfirmed: boolean): Promise<Domain>
+  confirmPermission(domainId: number): Promise<Domain>
+  /** Looks up the TXT record; fails with the reason when it is not there (#48) */
+  verifyDomain(domainId: number): Promise<Domain>
   startScan(domainId: number): Promise<ScanSummary>
   getScan(scanId: number): Promise<Scan>
   getFindings(scanId: number): Promise<Finding[]>

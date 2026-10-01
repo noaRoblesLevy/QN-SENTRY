@@ -43,7 +43,7 @@ def test_keeps_a_queued_or_running_scan_unless_it_is_stuck():
 def test_a_retention_period_below_one_day_is_refused(days):
     # A typo in .env must not delete every result each night
     with pytest.raises(ValidationError, match="retention_days"):
-        Settings(postgres_user="u", postgres_password="p", postgres_db="d", retention_days=days)
+        Settings(postgres_user="u", postgres_password="p", postgres_db="d", domain_verification_secret="s" * 40, retention_days=days)
 
 
 def test_clean_up_also_runs_when_a_worker_starts(monkeypatch):

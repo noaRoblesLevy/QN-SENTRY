@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -58,7 +60,8 @@ def add_domain(
             status.HTTP_409_CONFLICT, f"{payload.name} is already added."
         )
 
-    domain = Domain(name=payload.name, client=client)
+    # The confirmation is required by DomainCreate, so a new domain is always confirmed (#3)
+    domain = Domain(name=payload.name, client=client, permission_confirmed_at=datetime.now(UTC))
     db.add(domain)
     db.commit()
     db.refresh(domain)
