@@ -59,7 +59,7 @@ def resolve_permutations(
         raise RuntimeError("dnspython is not installed; it is needed for NS and MX lookups")
 
     fuzzer = _fuzzer(domain)
-    check_resolver(fuzzer.tld, nameservers)
+    check_resolver(nameservers)
     jobs: queue.Queue = queue.Queue()
     for permutation in fuzzer.domains:
         jobs.put(permutation)
@@ -161,23 +161,26 @@ def to_finding(permutation: Permutation, client: Permutation | None = None) -> F
     )
 
 
-def check_resolver(tld: str, nameservers: list[str] | None = None) -> None:
+# A name that exists as long as the internet does: the first root server. Every working
+# resolver can answer it, including Docker's built-in DNS (127.0.0.11), which does not
+# answer NS queries for a bare top-level domain like "be."
+CANARY = ("a.root-servers.net", "A")
+
+
+def check_resolver(nameservers: list[str] | None = None) -> None:
     """Fail loudly when the DNS resolver cannot be trusted.
 
-    Some resolvers (filtering routers, sandboxes) answer "does not exist" for ordinary
-    domains. dnstwist would then report zero lookalikes, which looks like a clean result
-    but means nothing was checked. So we first look up two names that always exist: the
-    nameservers of the top-level domain, and the address of one of those nameservers
-    (an ordinary hostname like a.nsset.be). If the resolver denies either, the module
-    raises instead (data contract 10.3.1: total failure).
+    Some resolvers (filtering routers, sandboxes, no network) do not answer or answer
+    "does not exist". dnstwist would then report zero lookalikes, which looks like a clean
+    result but means nothing was checked. So we first look up a name that always exists;
+    if the resolver cannot answer it, the check raises instead (data contract 10.3.1).
     """
     resolver = dns.resolver.Resolver(configure=not nameservers)
     if nameservers:
         resolver.nameservers = nameservers
     resolver.lifetime = 10
     try:
-        tld_nameservers = sorted(str(r.target) for r in resolver.resolve(f"{tld}.", "NS"))
-        resolver.resolve(tld_nameservers[0], "A")
+        resolver.resolve(*CANARY)
     except dns.exception.DNSException as e:
         raise RuntimeError(
             f"The DNS resolver {', '.join(resolver.nameservers)} does not resolve names that must "
