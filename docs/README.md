@@ -1,5 +1,11 @@
 # QN-Sentry Documentation
 
+## Using QN-Sentry
+
+- [Installation Guide](installation.md): requirements, installing, configuration, updating, removing
+- [User Guide](user-guide.md): clients and domains, running a scan, reading findings, risk score and report
+- [Known Issues and Difficult Points](known-issues.md): limitations, troubleshooting, and what was hard to build
+
 ## Project overview
 
 The blueprint of the project: what we build, why, and how.
