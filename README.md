@@ -31,6 +31,7 @@ docker compose up -d --build
 | `dashboard` | http://localhost:8080 | Web interface: clients, domains, scans and findings |
 | `api` | http://localhost:8000/docs | REST API with interactive documentation |
 | `worker` | – | Celery worker that runs the scans |
+| `migrate` | – | Brings the database schema up to date, then exits; `api` and `worker` wait for it |
 | `db` | internal only | PostgreSQL |
 | `redis` | internal only | Task queue between the API and the worker |
 | `beat` | – | Schedules periodic tasks: the daily GDPR clean-up of scan results older than `RETENTION_DAYS` |
@@ -42,11 +43,36 @@ The dashboard's nginx forwards `/api` to the `api` service, so the dashboard and
 ```
 backend/qnsentry/
 ├── api/          FastAPI app: routers (endpoints) and schemas (request and response bodies)
-├── db/           SQLAlchemy models and the database session
+├── db/           SQLAlchemy models, the database session and the Alembic migrations
 ├── modules/      OSINT modules and the module interface
 ├── worker/       Celery app and the task that runs a scan
 └── config.py     Settings read from environment variables
 ```
+
+## Database migrations
+
+The schema is managed with [Alembic](https://alembic.sqlalchemy.org/): every change to [`backend/qnsentry/db/models.py`](backend/qnsentry/db/models.py) needs a migration in `backend/qnsentry/db/migrations/versions/`. The `migrate` service applies new migrations on every `docker compose up`, so existing data is kept.
+
+After changing a model, generate the migration with the next number (`0002`, `0003`, ...):
+
+```bash
+docker compose up -d db
+docker compose run --rm -u root -v ./backend/qnsentry/db/migrations/versions:/app/qnsentry/db/migrations/versions migrate alembic revision --autogenerate --rev-id 0002 -m "add warnings to module runs"
+```
+
+On Linux, add `-u "$(id -u):$(id -g)"` instead of `-u root`, or the generated file is owned by root (Docker Desktop on Windows and macOS handles this itself).
+
+Always read the generated file before committing it: autogenerate can miss changes (a renamed column becomes a drop and an add) and writes the CHECK constraint of an enum column twice; remove those `sa.CheckConstraint` lines, the `sa.Enum` creates the constraint itself.
+
+Before merging a pull request that changes a model, check that the models and the migrations match (prints `No new upgrade operations detected`):
+
+```bash
+docker compose run --rm migrate alembic check
+```
+
+Databases created before Alembic (by `create_all`) are marked as migration `0001` the first time `migrate` runs, without changing their tables.
+
+The API and the worker no longer create tables themselves: when running them outside Docker, run `python -m qnsentry.db.migrate` first.
 
 ## How a scan runs
 
