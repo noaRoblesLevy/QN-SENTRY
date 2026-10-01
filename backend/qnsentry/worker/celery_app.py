@@ -1,11 +1,12 @@
 from celery import Celery
+from celery.schedules import crontab
 
 from qnsentry.config import settings
 
 celery_app = Celery(
     "qnsentry",
     broker=settings.redis_url,
-    include=["qnsentry.worker.tasks"],
+    include=["qnsentry.worker.tasks", "qnsentry.worker.retention"],
 )
 
 celery_app.conf.update(
@@ -19,4 +20,13 @@ celery_app.conf.update(
     broker_transport_options={
         "visibility_timeout": (settings.scan_timeout_minutes + 60) * 60
     },
+    # Periodic tasks, started by the "beat" service in docker-compose.yml
+    beat_schedule={
+        # GDPR storage limitation (#46): once a day, at night
+        "delete-expired-scans": {
+            "task": "qnsentry.worker.retention.delete_expired_scans",
+            "schedule": crontab(hour=3, minute=0),
+        },
+    },
+    timezone="UTC",
 )
