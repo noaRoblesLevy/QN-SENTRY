@@ -12,13 +12,15 @@ One rule for the whole demo: **every finding shown was planted on purpose** (sec
 
 A full scan takes minutes, not seconds (DNS lookups of hundreds of lookalike candidates, crawling and downloading documents). So the demo **starts a live scan first** and walks through a **finished scan made the same morning** while it runs. At the end the live scan is shown as finished, which proves the results were not staged.
 
+Both scans belong to the same client. The client BadSecurityInc is therefore **not** added live: a domain belongs to one client only (10.5.4), so adding `badsecurityinc.be` again gives `409`, and deleting the client to make it work would also delete the morning scan (`ON DELETE CASCADE`). The add-client form is only shown.
+
 | Time | Screen | Action | What to say |
 |---|---|---|---|
-| 0:00 | Clients page | Add client "BadSecurityInc" with domain `badsecurityinc.be` | "This is all an MSP enters: a company name and its domain." |
-| 0:30 | Client page | Start an assessment; the modules go from pending to running | "The API only queues the scan; a worker runs the four modules in the background, so the dashboard stays responsive." |
-| 1:00 | Client page | Open the scan of this morning (same client, completed) | "While that runs, this is the same scan from this morning." |
+| 0:00 | Clients page | Open the "add client" form without submitting it, then open BadSecurityInc | "This is all an MSP enters: a company name and its domain. BadSecurityInc is already added." |
+| 0:30 | Client page | Start a new scan of `badsecurityinc.be` (allowed: the morning scan is completed); the modules go from pending to running | "The API only queues the scan; a worker runs the four modules in the background, so the dashboard stays responsive." |
+| 1:00 | Client page | Open the scan of this morning in the scan history (completed) | "While that runs, this is the same scan from this morning." |
 | 1:15 | Scan page, risk badge | Point at the risk score and level | "One number for the manager: every finding adds points by severity, and the score saturates towards 100, so ten low findings never outweigh one critical." (section 10.7) |
-| 1:45 | Findings, Metadata | Open `budget-2026.xlsx` and `it-security-policy.pdf` | "Public documents leak the file server name `SRV-FS01`, usernames like `ljanssens` and Word 2010. That is a map of the internal network and a list of login names." |
+| 1:45 | Findings, Metadata | Open `budget-2026.xlsx` and `it-security-policy.pdf` | "Public documents leak the file server name `SRV-FS01`, the username `ljanssens` and outdated Office versions (Excel 2007, Word 2013). That is a map of the internal network and a list of login names." |
 | 2:30 | Findings, Phishing | Lookalike `badsecuritylnc.be` (high) and its certificate | "An l instead of an i. It has a mail server, so it can send and receive mail, and a valid certificate, so the fake website shows a padlock." |
 | 3:15 | Findings, Phishing | SPF `+all` and DMARC `p=none` (both high) | "Worse: the real domain lets anyone send mail as badsecurityinc.be. An attacker does not even need the lookalike." |
 | 3:45 | Findings, Breach | Addresses in breaches, `jan.peeters` with passwords (high) | "These addresses are on the team page; the breach data shows which ones leaked with a password. We store the breach names and data types, never the leaked data (GDPR)." |
@@ -32,7 +34,7 @@ A full scan takes minutes, not seconds (DNS lookups of hundreds of lookalike can
 **The day before**
 
 - [ ] Test environment is online: `https://www.badsecurityinc.be` loads, the documents under `/files/` download, `badsecuritylnc.be` has its MX record and certificate
-- [ ] `docker compose up -d --build` on the demo laptop from a clean checkout of the release tag
+- [ ] Create the release tag `v1.0` on the final `main` (see 11.6), then `docker compose up -d --build` on the demo laptop from a clean checkout of that tag
 - [ ] Run the detection-rate script against a fresh scan (`testenv/detection-rate`, see its README) and put the result on the conclusion slide
 - [ ] Record the backup video of the full script
 
@@ -40,7 +42,7 @@ A full scan takes minutes, not seconds (DNS lookups of hundreds of lookalike can
 
 - [ ] Run the scan that is shown during the walkthrough and check it is `completed`, not `partial`
 - [ ] Check the network of the room: the lookalike check refuses to run on a resolver that denies existing names (filtering networks). If the room network filters DNS, use a phone hotspot
-- [ ] Delete the BadSecurityInc client that is added live during rehearsals, so "add client" works in the demo
+- [ ] Do **not** delete the BadSecurityInc client: it holds the morning scan. Check that no scan of `badsecurityinc.be` is still running, otherwise the live scan at 0:30 gives `409`
 - [ ] Dashboard open in a browser with a large font, the PDF viewer ready, notifications off
 
 ## 11.4 Expected Results
@@ -58,6 +60,7 @@ The ground truth is `testenv/detection-rate/expected-findings.json`. The finding
 | Phishing | No DKIM key | low |
 | Breach | `jan.peeters`, `lars.janssens` (passwords), `pieter.mertens` (derived from a document author) | high |
 | Breach | `sofie.maes`, `lotte.vandenbroeck` | medium |
+| Breach | `info@badsecurityinc.be` (published on the site, only the address leaked in PretendSpamList) | low |
 | Attack Surface | `dev.` subdomain, admin login, outdated server headers, SSH on port 2222 | info to medium |
 
 The cleaned `privacy-notice.pdf` must **not** appear: it shows that the platform does not simply report every document.
@@ -73,7 +76,7 @@ The cleaned `privacy-notice.pdf` must **not** appear: it shows that the platform
 
 ## 11.6 Open Points
 
-This first version assumes the whole platform is finished. What the script depends on that is not on `main` yet (30/09/2026):
+This first version assumes the whole platform is finished. What the script depends on that is not on `main` yet (01/10/2026):
 
 | Part of the script | Depends on |
 |---|---|
@@ -83,5 +86,8 @@ This first version assumes the whole platform is finished. What the script depen
 | Breach addresses from the team page (3:45) | Metadata email extraction #8; derived address `pieter.mertens` #12 |
 | Attack Surface (4:30) | #4, #5, #6 and the test VM #2 |
 | "Add client" with an ownership check | #48 (if the check is built, the TXT record of `badsecurityinc.be` must be set before the demo) |
+| Detection rate on the conclusion slide, and the ground truth in 11.4 | #55 (`testenv/detection-rate`) |
+| Release tag `v1.0` for the demo laptop | To create on the final `main`, after the feature freeze (25/10) |
+| Language of the presentation | To ask Jan Celis whether it may be in English, like the code and documentation |
 
 When all of these are merged: rehearse the script with a timer, adjust the timings in 11.2, and replace this section with the rehearsal notes.
