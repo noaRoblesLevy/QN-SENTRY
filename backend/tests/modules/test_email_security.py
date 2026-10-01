@@ -260,14 +260,16 @@ def test_more_than_ten_lookups_makes_spf_ignored():
 
     assert lookups.count > SPF_LOOKUP_LIMIT
     assert finding.severity == Severity.MEDIUM
-    assert finding.details["check"] == "spf_lookups"
+    assert finding.details["check"] == "spf_permerror"
+    assert finding.details["reason"] == "too_many_lookups"
     assert "ignored" in finding.title and "even when it ends in '-all'" in finding.description
 
 
 def test_counting_stops_after_the_limit():
     # A record with a thousand includes must not cause a thousand lookups
-    record = "v=spf1 " + " ".join(f"include:s{i}.example" for i in range(1000)) + " -all"
-    get_txt = txt_from({})
+    names = [f"s{i}.example" for i in range(1000)]
+    record = "v=spf1 " + " ".join(f"include:{name}" for name in names) + " -all"
+    get_txt = txt_from({name: ["v=spf1 ip4:192.0.2.1 -all"] for name in names})
 
     lookups = count_spf_lookups(DOMAIN, record, get_txt)
 
@@ -306,7 +308,7 @@ def test_too_many_lookups_is_reported_by_the_full_check(monkeypatch):
 
     checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])]
 
-    assert checks == ["spf_lookups", "dkim"]
+    assert checks == ["spf_permerror", "dkim"]
 
 
 def test_failing_include_lookup_skips_only_the_count(monkeypatch):
@@ -319,6 +321,52 @@ def test_failing_include_lookup_skips_only_the_count(monkeypatch):
     checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])]
 
     assert checks == ["spf", "dmarc", "dkim"]
+
+
+@pytest.mark.parametrize(
+    ("record", "answers", "broken", "problem"),
+    [
+        # A mail service that was stopped removed its record, but the include stayed
+        ("v=spf1 include:_spf.removed-service.example -all", {}, "include:_spf.removed-service.example", "has no SPF record"),
+        ("v=spf1 include:_spf.double.example -all",
+         {"_spf.double.example": ["v=spf1 a -all", "v=spf1 mx -all"]}, "include:_spf.double.example", "has 2 SPF records"),
+        ("v=spf1 redirect=_spf.gone.example", {"_spf.gone.example": ["some other TXT record"]}, "redirect=_spf.gone.example", "has no SPF record"),
+    ],
+    ids=["missing include", "two records", "redirect without SPF"],
+)
+def test_include_without_exactly_one_spf_record_makes_spf_ignored(record, answers, broken, problem):
+    # RFC 7208 5.2 and 6.1: a permerror, so receivers ignore the whole record, like over the limit
+    lookups = count_spf_lookups(DOMAIN, record, txt_from(answers))
+    [finding] = evaluate_spf_lookups(DOMAIN, lookups)
+
+    assert lookups.broken == (broken, problem)
+    assert finding.details["reason"] == "broken_include"
+    assert finding.details["broken"] == broken
+    assert finding.title == f"SPF record on {DOMAIN} is ignored: {broken} {problem}"
+
+
+def test_ignored_spf_makes_a_weak_dmarc_high(monkeypatch):
+    # An SPF permerror protects as little as no SPF: with no DMARC nothing stops spoofing
+    monkeypatch.setattr(
+        dns.resolver.Resolver,
+        "resolve",
+        fake_dns({DOMAIN: ["v=spf1 include:_spf.removed-service.example -all"]}),
+    )
+
+    findings = {f.details["check"]: f for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])}
+
+    assert findings["spf_permerror"].severity == Severity.MEDIUM
+    assert findings["dmarc"].severity == Severity.HIGH
+    assert "nothing on this domain does" in findings["dmarc"].description
+
+
+def test_valid_spf_keeps_dmarc_medium(monkeypatch):
+    monkeypatch.setattr(dns.resolver.Resolver, "resolve", fake_dns({DOMAIN: ["v=spf1 ip4:192.0.2.1 -all"]}))
+
+    findings = {f.details["check"]: f for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])}
+
+    assert "spf_permerror" not in findings
+    assert findings["dmarc"].severity == Severity.MEDIUM
 
 
 def test_lookup_failure_propagates_from_the_counter():

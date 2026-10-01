@@ -72,7 +72,11 @@ def check_email_security(
     if len(spf_records) == 1:
         try:
             lookups = count_spf_lookups(domain, spf_records[0], lambda name: txt_records(resolver, name))
-            findings += evaluate_spf_lookups(domain, lookups)
+            ignored = evaluate_spf_lookups(domain, lookups)
+            findings += ignored
+            if ignored:
+                # Receivers ignore this SPF record, so it stops nobody: DMARC weighs that in
+                spf.allows_everyone = True
         except LookupFailed as e:
             log.warning("SPF lookup count of %s skipped: %s", domain, e)
 
@@ -230,14 +234,26 @@ class SpfLookups:
     followed: list[str] = field(default_factory=list)
     # A record that (indirectly) includes itself; real mail servers hit the limit on it
     loop: str | None = None
+    # An include: or redirect= target without exactly one SPF record (RFC 7208 5.2, 6.1),
+    # with what is wrong: "has no SPF record" or "has 2 SPF records"
+    broken: tuple[str, str] | None = None
+
+    @property
+    def permerror(self) -> bool:
+        """True when receivers stop evaluating with a permanent error and ignore SPF."""
+        return self.count > SPF_LOOKUP_LIMIT or self.loop is not None or self.broken is not None
 
 
 def count_spf_lookups(domain: str, record: str, get_txt: Callable[[str], list[str]]) -> SpfLookups:
     """The DNS lookups evaluating `record` costs, counted through include: and redirect=.
 
     Counts the terms that need a lookup (include, a, mx, ptr, exists, redirect); ip4, ip6
-    and all do not. Stops once the limit is exceeded, so a huge or looping tree of
-    records cannot make the check slow. `get_txt` returns the TXT records of a name.
+    and all do not. Stops at the first permanent error (over the limit, a loop, or an
+    included record that does not exist), so a huge or looping tree of records cannot
+    make the check slow. `get_txt` returns the TXT records of a name.
+
+    The count is the worst case, like common SPF checkers: a receiver stops at the first
+    term that matches the sender, so mail from a server listed early may never reach it.
     """
     result = SpfLookups()
 
@@ -247,7 +263,7 @@ def count_spf_lookups(domain: str, record: str, get_txt: Callable[[str], list[st
         # redirect= only applies when the record has no 'all' (RFC 7208 6.1)
         has_all = any(t.lstrip("+-~?") == "all" for t in terms)
         for term in terms:
-            if result.count > SPF_LOOKUP_LIMIT or result.loop:
+            if result.permerror:
                 return
             mechanism, target = _spf_term(term)
             if mechanism not in SPF_LOOKUP_TERMS or (mechanism == "redirect" and has_all):
@@ -261,38 +277,65 @@ def count_spf_lookups(domain: str, record: str, get_txt: Callable[[str], list[st
                 result.loop = target
                 return
             included = [r for r in get_txt(target) if _is_spf(r)]
-            if len(included) == 1:
-                walk(target, included[0], path + (target,))
+            if len(included) != 1:
+                problem = "has no SPF record" if not included else f"has {len(included)} SPF records"
+                result.broken = (f"{mechanism}:{target}" if mechanism == "include" else f"redirect={target}", problem)
+                return
+            walk(target, included[0], path + (target,))
 
     walk(domain.lower(), record, (domain.lower(),))
     return result
 
 
 def evaluate_spf_lookups(domain: str, lookups: SpfLookups) -> list[Finding]:
-    if lookups.count <= SPF_LOOKUP_LIMIT and not lookups.loop:
+    """A finding when receivers ignore the SPF record because evaluating it ends in a
+    permanent error (permerror): too many lookups, a loop, or a broken include."""
+    if not lookups.permerror:
         return []
-    if lookups.loop:
-        reason = f"the included records form a loop ({lookups.loop} includes itself)"
+
+    if lookups.broken:
+        term, problem = lookups.broken
+        reason, title_reason = "broken_include", f"{term} {problem}"
+        cause = (
+            f"The record refers to {term}, which {problem}. Receiving mail servers treat that as "
+            "an error (permerror). This often happens when a company stops using a mail service "
+            "and the service removes its record, but the include stays. Remove the include, or "
+            "fix the record it points to."
+        )
+    elif lookups.loop:
+        reason, title_reason = "loop", f"the included records form a loop ({lookups.loop} includes itself)"
+        cause = (
+            f"The included records refer back to {lookups.loop}, so evaluating them never ends. "
+            "Receiving mail servers stop at the lookup limit and treat it as an error (permerror). "
+            "Remove the include that points back."
+        )
     else:
-        reason = f"it needs more than {SPF_LOOKUP_LIMIT} DNS lookups"
+        reason, title_reason = "too_many_lookups", f"it needs more than {SPF_LOOKUP_LIMIT} DNS lookups"
+        cause = (
+            f"Receiving mail servers do at most {SPF_LOOKUP_LIMIT} DNS lookups to evaluate an SPF "
+            "record, counting every include, a, mx, ptr, exists and redirect, also inside the "
+            f"included records. The SPF record of {domain} needs more in the worst case (a server "
+            "listed early can still pass, but mail from the others fails), so mail servers treat it "
+            "as an error (permerror). This often happens when several mail services are added "
+            "(Microsoft 365, a newsletter tool, a CRM). Remove services that are no longer used, or "
+            "replace includes with the ip4/ip6 ranges they stand for."
+        )
+
     return [
         _finding(
             domain,
-            f"SPF record on {domain} is ignored: {reason}",
-            f"Receiving mail servers do at most {SPF_LOOKUP_LIMIT} DNS lookups to evaluate an SPF "
-            "record, counting every include, a, mx, ptr, exists and redirect, also inside the "
-            f"included records. The SPF record of {domain} goes over that, so mail servers treat it "
-            "as an error (permerror) and ignore it: it does not protect against spoofed email, even "
-            "when it ends in '-all'. This often happens when several mail services are added "
-            "(Microsoft 365, a newsletter tool, a CRM). Remove services that are no longer used, or "
-            "replace includes with the ip4/ip6 ranges they stand for.",
+            f"SPF record on {domain} is ignored: {title_reason}",
+            f"{cause} An ignored SPF record does not protect against spoofed email, even when it "
+            "ends in '-all'.",
             Severity.MEDIUM,
             {
-                "check": "spf_lookups",
-                "lookups": lookups.count if not lookups.loop else None,
+                "check": "spf_permerror",
+                "reason": reason,
+                "lookups": lookups.count if reason == "too_many_lookups" else None,
                 "limit": SPF_LOOKUP_LIMIT,
                 "followed": lookups.followed,
                 "loop": lookups.loop,
+                "broken": lookups.broken[0] if lookups.broken else None,
             },
         )
     ]
