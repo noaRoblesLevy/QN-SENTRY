@@ -1,5 +1,9 @@
 # QN-Sentry Documentation
 
+## Report
+
+- [Final report (draft)](report/report.md): the report of section 9.2, written alongside the project
+
 ## Project overview
 
 The blueprint of the project: what we build, why, and how.
