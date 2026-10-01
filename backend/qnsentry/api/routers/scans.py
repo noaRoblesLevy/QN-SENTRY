@@ -110,6 +110,11 @@ def get_report(scan_id: int, db: Session = Depends(get_db)) -> Response:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "The report is available when the scan has finished."
         )
+    if scan.status == ScanStatus.FAILED:
+        # Nothing was checked: a report would read like a clean result
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The scan failed, so there are no results to report. Start a new scan."
+        )
 
     pdf = build_report(report_data(scan))
     filename = f"qn-sentry-{scan.domain.name}-scan-{scan.id}.pdf"
@@ -139,4 +144,8 @@ def report_data(scan: Scan) -> ReportData:
             )
             for f in scan.findings
         ],
+        # Breach sources whose terms require crediting them (e.g. Have I Been Pwned, #13)
+        attributions=sorted(
+            {f.details["source"] for f in scan.findings if f.module == "breach" and f.details.get("source")}
+        ),
     )

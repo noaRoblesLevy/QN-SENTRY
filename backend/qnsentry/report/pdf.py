@@ -5,11 +5,17 @@ explains every important finding in plain language (the finding's `description`,
 contract 10.1). Technical details stay in the dashboard.
 
 build_report() only works on the plain data in ReportData, so it is tested without a
-database. The API turns a scan from the database into ReportData.
+database. The API turns a scan from the database into ReportData. A failed scan gets no
+report (the API answers 409): it has no results, and a report would look like a clean bill
+of health.
+
+The text uses the bundled DejaVu fonts (fonts/README.md): the built-in PDF fonts only
+cover Latin characters, and homoglyph lookalikes use Cyrillic or Greek letters.
 """
 
 import io
 from collections import Counter
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime
 from xml.sax.saxutils import escape
@@ -19,7 +25,21 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+FONT_FOLDER = Path(__file__).resolve().parent / "fonts"
+SANS, SANS_BOLD, MONO, MONO_BOLD = "DejaVuSans", "DejaVuSans-Bold", "DejaVuSansMono", "DejaVuSansMono-Bold"
+
+
+def _register_fonts() -> None:
+    for name in (SANS, SANS_BOLD, MONO, MONO_BOLD):
+        if name not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont(name, str(FONT_FOLDER / f"{name}.ttf")))
+    # So <b> inside a paragraph switches to the bold file
+    pdfmetrics.registerFontFamily(SANS, normal=SANS, bold=SANS_BOLD, italic=SANS, boldItalic=SANS_BOLD)
+    pdfmetrics.registerFontFamily(MONO, normal=MONO, bold=MONO_BOLD, italic=MONO, boldItalic=MONO_BOLD)
 
 SEVERITIES = ["critical", "high", "medium", "low", "info"]
 SEVERITY_LABELS = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info"}
@@ -51,6 +71,8 @@ SEVERITY_COLORS = {
 
 @dataclass
 class ReportFinding:
+    """A finding, in the order the module reported it (the API passes them by id)."""
+
     module: str
     severity: str
     title: str
@@ -75,9 +97,14 @@ class ReportData:
     generated_at: datetime
     modules: list[ReportModule] = field(default_factory=list)
     findings: list[ReportFinding] = field(default_factory=list)
+    # Sources the report must credit, e.g. Have I Been Pwned (CC BY 4.0)
+    attributions: list[str] = field(default_factory=list)
 
 
 def build_report(data: ReportData) -> bytes:
+    if data.status == "failed":
+        raise ValueError("A failed scan has no results to report")
+    _register_fonts()
     styles = _styles()
     story = []
 
@@ -86,7 +113,7 @@ def build_report(data: ReportData) -> bytes:
         Paragraph("QN-SENTRY", styles["brand"]),
         Paragraph("External exposure report", styles["title"]),
         Paragraph(
-            f"{_x(data.client)} &middot; <font name='Courier'>{_x(data.domain)}</font> &middot; "
+            f"{_x(data.client)} &middot; <font name='DejaVuSansMono'>{_x(data.domain)}</font> &middot; "
             f"scan #{data.scan_id} of {data.started_at:%d/%m/%Y}",
             styles["meta"],
         ),
@@ -124,7 +151,7 @@ def build_report(data: ReportData) -> bytes:
             Paragraph(
                 "These findings are the most useful to an attacker. Each one explains what it means and "
                 "what to do about it.",
-                styles["body"],
+                styles["intro"],
             )
         )
         for number, finding in enumerate(important, start=1):
@@ -140,7 +167,7 @@ def build_report(data: ReportData) -> bytes:
             Paragraph("Other findings", styles["h1"]),
             Paragraph(
                 "Low-risk and informational findings: good to know, and useful for IT to review.",
-                styles["body"],
+                styles["intro"],
             ),
             _others_table(others, styles),
         ]
@@ -149,7 +176,7 @@ def build_report(data: ReportData) -> bytes:
     story += [Spacer(1, 6 * mm), Paragraph("Scope and method", styles["h1"])]
     story.append(
         Paragraph(
-            f"QN-Sentry looked at <font name='Courier'>{_x(data.domain)}</font> from the outside, the way an "
+            f"QN-Sentry looked at <font name='DejaVuSansMono'>{_x(data.domain)}</font> from the outside, the way an "
             "attacker would before an attack: public sources, DNS records, the public website and its "
             "documents, and known data breaches. It did not try to break in, log in or test passwords "
             "(see the legal and ethical framework). The results show the situation on the day of the scan.",
@@ -157,6 +184,9 @@ def build_report(data: ReportData) -> bytes:
         )
     )
     story.append(_scope_table(data, styles))
+    if data.attributions:
+        story.append(Spacer(1, 3 * mm))
+        story.append(Paragraph("Sources: " + "; ".join(_x(a) for a in data.attributions) + ".", styles["body"]))
 
     buffer = io.BytesIO()
     document = SimpleDocTemplate(
@@ -173,7 +203,7 @@ def build_report(data: ReportData) -> bytes:
 
     def footer(canvas, doc):
         canvas.saveState()
-        canvas.setFont("Helvetica", 8)
+        canvas.setFont(SANS, 8)
         canvas.setFillColor(MUTED)
         canvas.drawString(18 * mm, 10 * mm, f"Confidential: {data.client} | generated {data.generated_at:%d/%m/%Y %H:%M} UTC")
         canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Page {doc.page}")
@@ -189,8 +219,13 @@ def build_report(data: ReportData) -> bytes:
 def _summary_text(data: ReportData, counts: Counter) -> str:
     total = sum(counts.values())
     if total == 0:
+        where = (
+            "in the parts that could be checked"
+            if any(m.status == "failed" for m in data.modules)
+            else "from the outside"
+        )
         return (
-            f"QN-Sentry found nothing an attacker could use about {_x(data.client)} from the outside. "
+            f"QN-Sentry found nothing an attacker could use about {_x(data.client)} {where}. "
             "This does not prove that the organisation is secure, only that no weaknesses were visible "
             "with the checks in this report."
         )
@@ -216,7 +251,7 @@ def _severity_tiles(counts: Counter) -> Table:
             Paragraph(
                 f"<font size='18' color='{fg.hexval()}'><b>{counts[severity]}</b></font><br/>"
                 f"<font size='8' color='{fg.hexval()}'>{SEVERITY_LABELS[severity].upper()}</font>",
-                ParagraphStyle("tile", alignment=1, leading=16),
+                ParagraphStyle("tile", fontName=SANS, alignment=1, leading=16),
             )
         )
     table = Table([cells], colWidths=[34 * mm] * 5, rowHeights=[16 * mm])
@@ -244,11 +279,11 @@ def _module_table(data: ReportData, styles) -> Table:
 
     table = Table(rows, colWidths=[62 * mm] + [17 * mm] * 5 + [19 * mm], repeatRows=1)
     style = [
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8),
+        ("FONT", (0, 0), (-1, 0), SANS_BOLD, 8),
         ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
         ("BACKGROUND", (0, 0), (-1, 0), RAISED),
-        ("FONT", (0, 1), (-1, -1), "Helvetica", 9),
-        ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9),
+        ("FONT", (0, 1), (-1, -1), SANS, 9),
+        ("FONT", (0, -1), (-1, -1), SANS_BOLD, 9),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, LINE),
@@ -280,7 +315,7 @@ def _finding_block(number: int, finding: ReportFinding, styles) -> KeepTogether:
             Paragraph(_x(finding.description), styles["finding_text"]),
             Paragraph(
                 f"{_x(MODULE_LABELS.get(finding.module, finding.module))} &middot; "
-                f"<font name='Courier'>{_x(finding.asset)}</font>",
+                f"<font name='DejaVuSansMono'>{_x(finding.asset)}</font>",
                 styles["finding_meta"],
             ),
         ]
@@ -290,13 +325,17 @@ def _finding_block(number: int, finding: ReportFinding, styles) -> KeepTogether:
 def _others_table(findings: list[ReportFinding], styles) -> Table:
     rows = [["Severity", "Finding"]]
     for f in findings:
-        rows.append([SEVERITY_LABELS.get(f.severity, f.severity), Paragraph(_x(f.title), styles["cell"])])
+        # The asset under the title: the ASCII form (xn--...) of a homoglyph lookalike, a URL, ...
+        cell = (
+            f"{_x(f.title)}<br/><font name='DejaVuSansMono' size='7.5' color='{MUTED.hexval()}'>{_x(f.asset)}</font>"
+        )
+        rows.append([SEVERITY_LABELS.get(f.severity, f.severity), Paragraph(cell, styles["cell"])])
     table = Table(rows, colWidths=[22 * mm, None], repeatRows=1)
     style = [
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8),
+        ("FONT", (0, 0), (-1, 0), SANS_BOLD, 8),
         ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
         ("BACKGROUND", (0, 0), (-1, 0), RAISED),
-        ("FONT", (0, 1), (0, -1), "Helvetica-Bold", 8),
+        ("FONT", (0, 1), (0, -1), SANS_BOLD, 8),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, LINE),
     ]
@@ -322,7 +361,7 @@ def _scope_table(data: ReportData, styles) -> Table:
     table.setStyle(
         TableStyle(
             [
-                ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8),
+                ("FONT", (0, 0), (-1, 0), SANS_BOLD, 8),
                 ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
                 ("BACKGROUND", (0, 0), (-1, 0), RAISED),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -337,12 +376,13 @@ def _scope_table(data: ReportData, styles) -> Table:
 
 
 def _sorted(findings: list[ReportFinding]) -> list[ReportFinding]:
+    """By severity, then by module; within that the module's own order is kept (sorted() is
+    stable), so e.g. the lookalike that can receive email comes before the email records."""
     return sorted(
         findings,
         key=lambda f: (
             SEVERITIES.index(f.severity) if f.severity in SEVERITIES else len(SEVERITIES),
             MODULES.index(f.module) if f.module in MODULES else len(MODULES),
-            f.title,
         ),
     )
 
@@ -353,13 +393,17 @@ def _x(text: str) -> str:
 
 
 def _styles() -> dict[str, ParagraphStyle]:
-    base = dict(fontName="Helvetica", textColor=INK, alignment=TA_LEFT)
+    base = dict(fontName=SANS, textColor=INK, alignment=TA_LEFT)
     return {
-        "brand": ParagraphStyle("brand", fontName="Courier-Bold", fontSize=10, textColor=SIGNAL, leading=12),
-        "title": ParagraphStyle("title", **{**base, "fontName": "Helvetica-Bold"}, fontSize=22, leading=28),
+        "brand": ParagraphStyle("brand", fontName=MONO_BOLD, fontSize=10, textColor=SIGNAL, leading=12),
+        "title": ParagraphStyle("title", **{**base, "fontName": SANS_BOLD}, fontSize=22, leading=28),
         "meta": ParagraphStyle("meta", **{**base, "textColor": MUTED}, fontSize=10, leading=14),
-        "h1": ParagraphStyle("h1", **{**base, "fontName": "Helvetica-Bold"}, fontSize=14, leading=18, spaceBefore=4, spaceAfter=4),
+        # keepWithNext: a heading (and the line under it) never stays alone at the bottom of a page
+        "h1": ParagraphStyle(
+            "h1", **{**base, "fontName": SANS_BOLD}, fontSize=14, leading=18, spaceBefore=4, spaceAfter=4, keepWithNext=1
+        ),
         "body": ParagraphStyle("body", **base, fontSize=10, leading=14, spaceAfter=4),
+        "intro": ParagraphStyle("intro", **base, fontSize=10, leading=14, spaceAfter=4, keepWithNext=1),
         "cell": ParagraphStyle("cell", **base, fontSize=9, leading=12),
         "badge": ParagraphStyle("badge", **base, fontSize=8, leading=10),
         "finding_title": ParagraphStyle("finding_title", **base, fontSize=10.5, leading=13),

@@ -3,6 +3,7 @@
 import io
 from datetime import UTC, datetime
 
+import pytest
 from pypdf import PdfReader
 
 from qnsentry.report.pdf import ReportData, ReportFinding, ReportModule, build_report
@@ -118,3 +119,74 @@ def test_markup_characters_in_findings_are_shown_as_text():
 
     assert "budget.xlsx reveals <paths> & names" in text
     assert r"\\SRV-FS01\Finance\ found." in text
+
+
+# ---------- Review of #51 ----------
+
+
+def test_a_failed_scan_gets_no_report():
+    # Nothing was checked, so a report would read like a clean result
+    failed = report([])
+    failed.status = "failed"
+
+    with pytest.raises(ValueError, match="failed scan"):
+        build_report(failed)
+
+
+def test_partial_scan_without_findings_only_speaks_for_what_was_checked():
+    modules = [ReportModule(m, "failed" if m == "metadata" else "completed", "error") for m in ("attack_surface", "metadata", "phishing", "breach")]
+    partial = report([], modules)
+    partial.status = "partial"
+
+    text = text_of(build_report(partial))
+
+    assert "found nothing an attacker could use about BadSecurityInc in the parts that could be checked" in text
+    assert "from the outside." not in text
+
+
+def test_homoglyphs_are_readable_and_shown_with_their_ascii_form():
+    # Cyrillic а (U+0430) instead of a: the built-in PDF fonts would print b■dsecurityinc.be
+    homoglyph = ReportFinding(
+        module="phishing",
+        severity="low",
+        title="Registered lookalike domain b\u0430dsecurityinc.be",
+        description="This domain looks like the company domain.",
+        asset="xn--bdsecurityinc-w1k.be",
+    )
+
+    pdf = build_report(report([homoglyph]))
+    text = text_of(pdf)
+
+    assert "b\u0430dsecurityinc.be" in text
+    assert "xn--bdsecurityinc-w1k.be" in text
+    fonts = {
+        str(font["/BaseFont"])
+        for page in PdfReader(io.BytesIO(pdf)).pages
+        for font in page["/Resources"]["/Font"].values()
+    }
+    # reportlab always lists Helvetica as the page's starting font; the text itself is DejaVu
+    assert {"/AAAAAA+DejaVuSans", "/AAAAAA+DejaVuSansMono"} <= fonts, fonts
+
+
+def test_within_a_severity_the_modules_own_order_is_kept():
+    # The phishing module reports the lookalike that can receive email before the DMARC record;
+    # alphabetical order would put "DMARC ..." first
+    dmarc = ReportFinding("phishing", "high", "DMARC policy p=none on badsecurityinc.be", "Spoofed mail is delivered.", "badsecurityinc.be")
+    lookalike = ReportFinding("phishing", "high", "Registered lookalike domain badsecuritylnc.be", "Has a mail server.", "badsecuritylnc.be")
+
+    text = text_of(build_report(report([lookalike, dmarc])))
+
+    assert text.index("1. Registered lookalike domain") < text.index("2. DMARC policy")
+
+
+def test_sources_that_need_attribution_are_credited():
+    data = report([BREACH])
+    data.attributions = ["Breach data from Have I Been Pwned (https://haveibeenpwned.com), CC BY 4.0"]
+
+    text = text_of(build_report(data))
+
+    assert "Sources: Breach data from Have I Been Pwned (https://haveibeenpwned.com), CC BY 4.0." in text
+
+
+def test_no_sources_line_without_attributions():
+    assert "Sources:" not in text_of(build_report(report([BREACH])))

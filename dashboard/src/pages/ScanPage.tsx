@@ -77,8 +77,9 @@ function ScanView({ scanId }: { scanId: number }) {
           </>
         }
         actions={
-          // The report exists once the scan has finished (issue #17)
+          // The report exists once the scan has finished, and not for a failed scan (issue #17)
           !active &&
+          scan.status !== 'failed' &&
           report && (
             <a className="button button-primary" href={report} download>
               <FileDown size={16} strokeWidth={1.5} aria-hidden="true" />
