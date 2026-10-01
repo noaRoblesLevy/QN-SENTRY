@@ -8,16 +8,20 @@ Measures how many of the weaknesses planted in the BadSecurityInc test environme
 ## Usage
 
 ```bash
-# Against a running QN-Sentry (scan id from the dashboard or POST /api/scans)
-python testenv/detection-rate/detection_rate.py --api http://localhost:8080 --scan 12
+# Against a running QN-Sentry (the API port; scan id from the dashboard or POST /api/domains/{id}/scans)
+python testenv/detection-rate/detection_rate.py --api http://localhost:8000 --scan 12
 
 # Against a saved findings file, output as JSON (for the report)
 python testenv/detection-rate/detection_rate.py --findings findings.json --json
 ```
 
+Every result states the scan, the time it was measured and the commit of the ground truth, so a number in the report can always be traced back.
+
 ## How findings are matched
 
 An entry matches a finding when `module` and `type` are equal, the `asset` matches (`*` is a wildcard, case-insensitive) and the entry's `details` are a subset of the finding's details (e.g. `{"check": "spf"}`).
+
+**Each finding counts for at most one entry, and each entry for at most one finding.** Entries and findings are paired with a maximum bipartite matching, so one finding can never tick off two entries (the admin login and the outdated server on `dev.` share a pattern and are told apart by `details`), and a finding is never given to the wrong entry when a pairing for both exists.
 
 The report lists per module:
 
@@ -25,28 +29,35 @@ The report lists per module:
 |---|---|
 | Detected | expected entries found / expected entries (pending entries not counted) |
 | Pending | entries that cannot be found yet: the module or that part of the test environment does not exist yet (the reason is in `pending`) |
-| Severity differs | found, but with another severity than expected |
-| Unexpected | findings that are not in the ground truth (a new real finding, or a false positive to add to `must_not_find`) |
+| Sev. differs | found, but with another severity than expected |
+| Unexpected | findings that match no entry: a new real finding (add it to the ground truth) or a false positive (add it to `must_not_find`) |
+| Duplicates | a second finding for an entry that was already found |
 | False pos. | `must_not_find` entries that were reported |
 
-`placeholder` findings (stand-ins for modules that are not built yet) are ignored.
+And three numbers for the conclusion:
 
-When a pending module is merged, remove the `pending` key of its entries so they count.
-
-## Result so far
-
-Scan of `badsecurityinc.be` on 30/09/2026 (main plus the open PRs #49 to #54, in Docker):
-
-| Module | Detected | Pending |
+| Number | Formula | Why |
 |---|---|---|
-| Attack Surface | - | 5 (#4, #5, #6, test VM #2) |
-| Metadata | 11/11 | 1 (email convention, #8) |
-| Phishing | 5/5 | 0 |
-| Breach | - | 6 (addresses from #8 and #12) |
+| Detection rate (recall) | found / expected | How much of what is there the scan finds |
+| Detected with the expected severity | found with the right severity / expected | Finding a `high` as `low` gives the client the wrong picture |
+| Precision | found / (found + unexpected + duplicates + false positives) | A scanner that reports everything would get a perfect detection rate; precision shows it |
 
-Detection rate 16/16, no false positives, no unexpected findings.
+`placeholder` findings (stand-ins for modules that are not built yet) are ignored. When a pending module is merged, remove the `pending` key of its entries so they count.
+
+`expected-findings.json` is the **single source** of the expected findings. `testenv/website/README.md` lists how the documents are planted and links here for the expected results.
+
+## Results
+
+| Measured | Scan | Ground truth | Detection rate | Expected severity | Precision | Pending |
+|---|---|---|---|---|---|---|
+| 01/10/2026 | 2: `main` plus #49 to #54 | `d6f7cb3` | 16/16 (100%) | 100% | 100% | 12 |
+| 01/10/2026 | 3: `main` plus #53, without #49 | `d6f7cb3` | 15/16 (94%): lookalike certificate missed | 94% | 100% | 12 |
+
+Per module for scan 2: Metadata 11/11, Phishing 5/5; Attack Surface (5) and Breach (6) and the email convention (1) are pending. Scan 3 shows the measurement doing its job: without the certificate check of #49, `ph-certificate` is reported as missed.
 
 ## Tests
+
+The tests run with the backend tests (`cd backend && pytest`, see `testpaths` in `backend/pyproject.toml`), or on their own:
 
 ```bash
 pytest testenv/detection-rate

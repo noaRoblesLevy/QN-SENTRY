@@ -1,4 +1,5 @@
 [tool.pytest.ini_options]
 # So tests can import the qnsentry package when pytest runs from backend/
 pythonpath = ["."]
-testpaths = ["tests"]
+# Also the tests of the detection-rate script (#47), so they are not forgotten
+testpaths = ["tests", "../testenv/detection-rate"]
