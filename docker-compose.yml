@@ -1,0 +1,85 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Brings the database schema up to date (Alembic migrations), then exits.
+  # The api and worker only start after it succeeded.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    env_file: .env
+    command: ["python", "-m", "qnsentry.db.migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    env_file: .env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  # Puts periodic tasks on the queue (e.g. the daily GDPR clean-up, #46); the worker runs them.
+  # It needs no OSINT tools, so it uses the lighter API image. Exactly one beat may run.
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    command: ["celery", "-A", "qnsentry.worker.celery_app", "beat", "--loglevel=info", "--schedule", "/tmp/celerybeat-schedule"]
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: ./dashboard
+    # nginx serves the React app and forwards /api to the api service
+    environment:
+      - API_UPSTREAM=http://api:8000
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      # nginx looks up the name "api" when it starts
+      - api
+
+volumes:
+  db-data:

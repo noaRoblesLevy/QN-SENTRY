@@ -1,0 +1,57 @@
+.last-scan {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.inline-alert {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--line);
+}
+
+/* On phones each domain becomes a small card, so "Run scan" stays on screen */
+@media (max-width: 560px) {
+  .domains-table thead {
+    display: none;
+  }
+
+  .domains-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .domains-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .domains-table td {
+    height: auto;
+    padding: 0;
+    border: none;
+    overflow-wrap: anywhere;
+  }
+
+  .domains-table td.actions {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  .domains-table .row-actions {
+    flex-direction: column-reverse;
+    align-items: flex-end;
+  }
+}

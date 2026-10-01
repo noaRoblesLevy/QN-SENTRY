@@ -1,0 +1,14 @@
+# Documents are binary: never convert line endings inside them. Small PDFs contain no
+# NUL bytes, so Git would otherwise treat them as text and corrupt them on Windows
+# (core.autocrlf) by turning LF into CRLF.
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+
+# Shell scripts run on Linux (install script #18, containers): always LF, also on Windows.
+# With CRLF, bash fails with errors like "$'\r': command not found".
+*.sh text eol=lf

@@ -31,3 +31,6 @@ reports/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Vercel CLI project links (testenv/website, testenv/lookalike)
+.vercel/

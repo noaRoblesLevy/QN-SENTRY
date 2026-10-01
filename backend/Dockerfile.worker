@@ -1,0 +1,36 @@
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# OSINT tools used by the modules
+# - exiftool: document metadata (#7); Archive::Zip lets it read Office files, which are ZIP archives
+# - katana: website crawler (#7), pinned and verified against the release checksums
+ARG KATANA_VERSION=1.7.0
+# Set by Docker BuildKit to the platform being built for (amd64, arm64); amd64 without BuildKit
+ARG TARGETARCH
+RUN KATANA_ZIP="katana_${KATANA_VERSION}_linux_${TARGETARCH:-amd64}.zip" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libimage-exiftool-perl libarchive-zip-perl ca-certificates curl unzip \
+    && cd /tmp \
+    && curl -fsSLO "https://github.com/projectdiscovery/katana/releases/download/v${KATANA_VERSION}/${KATANA_ZIP}" \
+    && curl -fsSLO "https://github.com/projectdiscovery/katana/releases/download/v${KATANA_VERSION}/katana-${KATANA_VERSION}-checksums.txt" \
+    && grep " ${KATANA_ZIP}$" "katana-${KATANA_VERSION}-checksums.txt" | sha256sum -c - \
+    && unzip -o "${KATANA_ZIP}" katana -d /usr/local/bin \
+    && rm -f /tmp/katana* \
+    && apt-get purge -y curl unzip \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY qnsentry ./qnsentry
+
+RUN useradd --create-home appuser
+USER appuser
+
+CMD ["celery", "-A", "qnsentry.worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]

@@ -178,6 +178,35 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | Download the PDF report of a scan | #17 |
 | Log in | #20 |
 
+### 10.5.3 Request and Response Bodies
+
+| Endpoint | Request body | Success | Response |
+|---|---|---|---|
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`) |
+| `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
+| `GET /api/clients/{id}` | | `200` | The client; every domain also has `scans` (`id`, `status`, `created_at`), newest first |
+| `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be"}` | `201` | The new domain: `id`, `name` |
+| `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
+| `GET /api/scans/{id}` | | `200` | See the example above |
+| `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
+
+Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
+
+### 10.5.4 Rules and Errors
+
+- **A domain belongs to one client only.** Adding a domain that already exists, for any client, returns `409`.
+- **One active scan per domain.** Starting a scan while another scan of that domain is `queued` or `running` returns `409`.
+- **Stuck scans do not block their domain.** A scan still `queued` or `running` after `SCAN_TIMEOUT_MINUTES` (default 120) is marked `failed` when a new scan of that domain is started. Its unfinished modules get the reason as `error`.
+- **Interrupted scans end as `failed`.** If a worker stops during a scan, the scan is marked `failed` ("The worker stopped during this scan") instead of being run again, so findings are never stored twice.
+- **Every error has the same shape:** `{"detail": "..."}`, with one readable sentence the dashboard can show as is. This includes validation errors: FastAPI returns a list of error objects by default, and the API turns that into a single message.
+
+| Status | When | Example `detail` |
+|---|---|---|
+| `404` | The client, domain or scan does not exist | `Scan not found` |
+| `409` | The request conflicts with the rules above | `A scan is already running for this domain.` |
+| `422` | The request body is invalid | `Enter a valid domain name, e.g. example.be` |
+| `503` | The scan could not be queued (Redis unavailable); the scan is marked `failed` | `The scan queue is unavailable. Try again later.` |
+
 ## 10.6 Open Questions
 
 - **Name normalisation:** how names with multiple words, hyphens or accents are converted to email addresses (e.g. "Sofie Van den Broeck" becomes `sofie.vandenbroeck` or `sofie.van.den.broeck`; "Gérard" becomes `gerard`). The Metadata module (#8) and the Breach module (#12) must use the same rule.

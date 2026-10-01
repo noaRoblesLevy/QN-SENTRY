@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# So tests can import the qnsentry package when pytest runs from backend/
+pythonpath = ["."]
+testpaths = ["tests"]

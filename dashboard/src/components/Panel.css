@@ -1,0 +1,56 @@
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.panel + .panel {
+  margin-top: var(--space-6);
+}
+
+.panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.panel-title {
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.panel-meta {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.panel-body {
+  padding: var(--space-4);
+}
+
+/* position: relative keeps absolutely positioned children (like .visually-hidden)
+   inside this scroll area, so they cannot push the page wider on phones */
+.panel-body-flush {
+  position: relative;
+  overflow-x: auto;
+}

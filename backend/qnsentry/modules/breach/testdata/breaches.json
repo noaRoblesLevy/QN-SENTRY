@@ -1,0 +1,33 @@
+{
+  "_about": "Fictitious data breaches for the BadSecurityInc test environment (issue #11). The breaches, people and addresses do not exist. Only the kinds of data exposed are listed, never the data itself.",
+  "breaches": {
+    "ExampleShop": {
+      "date": "2021-06-22",
+      "data_classes": ["Email addresses", "Names", "Passwords", "Phone numbers"]
+    },
+    "FictionalBikeForum": {
+      "date": "2019-03-10",
+      "data_classes": ["Email addresses", "Usernames"]
+    },
+    "SampleNewsletterHub": {
+      "date": "2023-01-15",
+      "data_classes": ["Email addresses", "Names"]
+    },
+    "DemoGameCloud": {
+      "date": "2024-08-05",
+      "data_classes": ["Email addresses", "Usernames", "Passwords", "IP addresses"]
+    },
+    "PretendSpamList": {
+      "date": "2022-11-30",
+      "data_classes": ["Email addresses"]
+    }
+  },
+  "accounts": {
+    "jan.peeters@badsecurityinc.be": ["ExampleShop", "FictionalBikeForum"],
+    "sofie.maes@badsecurityinc.be": ["SampleNewsletterHub"],
+    "lars.janssens@badsecurityinc.be": ["DemoGameCloud"],
+    "lotte.vandenbroeck@badsecurityinc.be": ["SampleNewsletterHub"],
+    "info@badsecurityinc.be": ["PretendSpamList"],
+    "pieter.mertens@badsecurityinc.be": ["ExampleShop"]
+  }
+}
