@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     breach_source: str = "local"
     # JSON dataset for the local source; empty = the bundled BadSecurityInc test data
     breach_dataset: str | None = None
+    # Cert Spotter (#10): without a key only for personal or evaluation use, with a small hourly limit
+    certspotter_api_key: str | None = None
 
     @property
     def database_url(self) -> URL:

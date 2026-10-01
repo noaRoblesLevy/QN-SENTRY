@@ -8,6 +8,8 @@ from qnsentry.db.models import Severity
 from qnsentry.modules.base import Finding
 from qnsentry.modules.phishing import certificates
 from qnsentry.modules.phishing.certificates import (
+    MAX_FAILURES_IN_A_ROW,
+    certificates_for,
     find_lookalike_certificates,
     parse_certspotter,
     parse_crtsh,
@@ -84,18 +86,22 @@ def test_parse_crtsh_merges_the_precertificate_and_certificate():
 
 
 def use_services(monkeypatch, certspotter=None, crtsh=None):
-    """Replace both CT services: a list is their answer, an exception is raised."""
+    """Replace both CT services: a list is their answer, an exception is raised.
+    Returns the calls per service."""
+    calls = {"Cert Spotter": [], "crt.sh": []}
 
-    def fake(answer, parse):
-        def fetch(domain):
+    def fake(service, answer, parse):
+        def fetch(domain, **kwargs):
+            calls[service].append((domain, kwargs))
             if isinstance(answer, Exception):
                 raise answer
             return parse(answer or [])
 
         return fetch
 
-    monkeypatch.setattr(certificates, "from_certspotter", fake(certspotter, parse_certspotter))
-    monkeypatch.setattr(certificates, "from_crtsh", fake(crtsh, parse_crtsh))
+    monkeypatch.setattr(certificates, "from_certspotter", fake("Cert Spotter", certspotter, parse_certspotter))
+    monkeypatch.setattr(certificates, "from_crtsh", fake("crt.sh", crtsh, parse_crtsh))
+    return calls
 
 
 def test_valid_certificate_for_a_lookalike_is_high(monkeypatch):
@@ -108,17 +114,24 @@ def test_valid_certificate_for_a_lookalike_is_high(monkeypatch):
     assert finding.asset == "badsecuritylnc.be"
     assert finding.severity == Severity.HIGH
     assert "issued by Let's Encrypt on 2026-09-30" in finding.description
-    assert finding.details["valid_now"] is True
+    assert finding.details["source"] == "Cert Spotter"
     assert finding.details["certificates"][0]["source"] == "Cert Spotter"
 
 
-def test_expired_certificate_is_medium(monkeypatch):
-    use_services(monkeypatch, certspotter=CERTSPOTTER)
+@pytest.mark.parametrize("service", ["certspotter", "crtsh"])
+def test_only_valid_certificates_count_whichever_service_answers(monkeypatch, service):
+    # Cert Spotter only lists unexpired certificates; crt.sh is asked the same, so the
+    # result never depends on which service answered
+    if service == "certspotter":
+        use_services(monkeypatch, certspotter=CERTSPOTTER)
+    else:
+        use_services(monkeypatch, certspotter=OSError("HTTP Error 429"), crtsh=CRTSH)
 
-    [finding] = find_lookalike_certificates([lookalike()], now=datetime(2027, 6, 1, tzinfo=UTC))
+    assert find_lookalike_certificates([lookalike()], now=datetime(2027, 6, 1, tzinfo=UTC)) == []
 
-    assert finding.severity == Severity.MEDIUM
-    assert finding.title.startswith("Expired TLS certificate")
+
+def test_crtsh_is_asked_for_unexpired_certificates_only():
+    assert "exclude=expired" in certificates.CRTSH_URL
 
 
 def test_certificate_for_the_companys_own_lookalike_is_info(monkeypatch):
@@ -146,8 +159,85 @@ def test_crtsh_is_used_when_cert_spotter_fails(monkeypatch):
 def test_fails_when_both_services_fail_for_every_lookalike(monkeypatch):
     use_services(monkeypatch, certspotter=OSError("timed out"), crtsh=OSError("HTTP Error 502: Bad Gateway"))
 
-    with pytest.raises(RuntimeError, match="both failed"):
+    with pytest.raises(RuntimeError, match="could not be searched reliably"):
         find_lookalike_certificates([lookalike()], now=NOW)
+
+
+def test_cert_spotter_failing_and_an_empty_crtsh_answer_is_uncertain_not_clean(monkeypatch):
+    # Reviewer's probe: 14 hours after issuance crt.sh still had nothing for badsecuritylnc.be
+    use_services(monkeypatch, certspotter=OSError("HTTP Error 429"), crtsh=[])
+
+    with pytest.raises(certificates.CertificateLookupFailed, match="can take hours to index"):
+        certificates_for("badsecuritylnc.be")
+    with pytest.raises(RuntimeError, match="could not be searched reliably"):
+        find_lookalike_certificates([lookalike()], now=NOW)
+
+
+def test_an_empty_cert_spotter_answer_is_trusted(monkeypatch):
+    use_services(monkeypatch, certspotter=[])
+
+    assert certificates_for("badsecuritylnc.be") == []
+
+
+def test_one_uncertain_lookalike_does_not_hide_the_others(monkeypatch):
+    def certspotter(domain, **kwargs):
+        if domain == "badsecuritylnc.be":
+            raise OSError("HTTP Error 503")
+        return parse_certspotter(CERTSPOTTER)
+
+    monkeypatch.setattr(certificates, "from_certspotter", certspotter)
+    monkeypatch.setattr(certificates, "from_crtsh", lambda domain: [])
+
+    found = find_lookalike_certificates([lookalike(), lookalike("bad-securityinc.be")], now=NOW)
+
+    assert [f.asset for f in found] == ["bad-securityinc.be"]
+
+
+def test_a_failing_service_is_skipped_after_three_failures_in_a_row(monkeypatch):
+    calls = use_services(monkeypatch, certspotter=OSError("timed out"), crtsh=OSError("HTTP Error 502"))
+    domains = [lookalike(f"lookalike{i}.be") for i in range(10)]
+
+    with pytest.raises(RuntimeError):
+        find_lookalike_certificates(domains, now=NOW)
+
+    # Without the circuit breaker: 10 x 2 requests of up to 30 s each
+    assert len(calls["Cert Spotter"]) == MAX_FAILURES_IN_A_ROW
+    assert len(calls["crt.sh"]) == MAX_FAILURES_IN_A_ROW
+
+
+def test_a_success_resets_the_failure_count(monkeypatch):
+    answers = iter([OSError("x"), OSError("x"), CERTSPOTTER, OSError("x"), OSError("x"), CERTSPOTTER])
+
+    def certspotter(domain, **kwargs):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return parse_certspotter(answer)
+
+    monkeypatch.setattr(certificates, "from_certspotter", certspotter)
+    monkeypatch.setattr(certificates, "from_crtsh", lambda domain: parse_crtsh(CRTSH))
+
+    found = find_lookalike_certificates([lookalike(f"l{i}.be") for i in range(6)], now=NOW)
+
+    assert len(found) == 6  # four answered by crt.sh, two by Cert Spotter: never skipped
+
+
+def test_the_api_key_is_sent_to_cert_spotter(monkeypatch):
+    calls = use_services(monkeypatch, certspotter=CERTSPOTTER)
+
+    find_lookalike_certificates([lookalike()], now=NOW, api_key="secret")
+
+    assert calls["Cert Spotter"] == [("badsecuritylnc.be", {"api_key": "secret"})]
+
+
+def test_bearer_header_only_with_a_key(monkeypatch):
+    sent = []
+    monkeypatch.setattr(certificates, "_get_json", lambda url, headers=None: sent.append(headers) or [])
+
+    certificates.from_certspotter("badsecuritylnc.be", api_key="secret")
+    certificates.from_certspotter("badsecuritylnc.be")
+
+    assert sent == [{"Authorization": "Bearer secret"}, {}]
 
 
 def test_no_lookalikes_means_no_requests(monkeypatch):

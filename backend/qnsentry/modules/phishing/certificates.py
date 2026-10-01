@@ -5,21 +5,45 @@ logs. Someone who builds a phishing website on a lookalike domain wants HTTPS, s
 request a certificate, and it shows up in the logs, often before the attack starts.
 
 For every registered lookalike found by the lookalike check (#9) we ask a CT search
-service which certificates exist for it:
-1. Cert Spotter (api.certspotter.com): fast and indexes new certificates within minutes
-2. crt.sh: the backup; it is often overloaded (HTTP 502) and slower to index
+service which **valid** certificates exist for it:
+1. Cert Spotter (api.certspotter.com): fast, indexes new certificates within minutes and
+   only lists unexpired certificates. It searches the domain and its subdomains.
+2. crt.sh: the backup; often overloaded (HTTP 502) and hours behind with indexing. We ask
+   it for unexpired certificates of the exact name only, because its subdomain search
+   (%.domain) fails even more often. So the backup can miss a certificate that only
+   covers a subdomain (e.g. login.lookalike.be); the finding says which service answered.
 
-Only when both fail for every lookalike does the check fail. The phishing module then
+Only valid certificates count, whichever service answers, so the result does not depend
+on which one was reached. An expired certificate is history; the lookalike domain itself
+is already reported by the lookalike check.
+
+Uncertain answers are not reported as "no certificate": when Cert Spotter fails and crt.sh
+answers with nothing, crt.sh may simply not have indexed it yet, so that lookalike counts
+as not checked. A service that fails three times in a row is skipped for the rest of the
+scan (circuit breaker), so a hanging service cannot make a scan take 25 x 30 seconds.
+
+Cert Spotter returns a limited number of certificates per response (more through its
+`after` parameter). We read only the first page: one valid certificate is enough for the
+finding, and every extra request counts against the free hourly limit. The details then
+list the first certificates found.
+
+Without an API key Cert Spotter is for personal or evaluation use with a small hourly
+limit, which covers this student project; a real deployment sets CERTSPOTTER_API_KEY.
+
+Only when no lookalike could be checked does the check fail. The phishing module then
 still returns the findings of its other checks (data contract 10.3.1).
 """
 
 import json
 import logging
+import os
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
+
+from pydantic import ValidationError
 
 from qnsentry.db.models import Severity
 from qnsentry.modules.base import Finding
@@ -28,20 +52,24 @@ from qnsentry.modules.phishing.constants import MODULE
 log = logging.getLogger(__name__)
 
 FINDING_TYPE = "lookalike_certificate"
+CERTSPOTTER = "Cert Spotter"
+CRTSH = "crt.sh"
 CERTSPOTTER_URL = (
     "https://api.certspotter.com/v1/issuances?domain={}&include_subdomains=true"
     "&expand=dns_names&expand=issuer"
 )
-CRTSH_URL = "https://crt.sh/?q={}&output=json"
+CRTSH_URL = "https://crt.sh/?q={}&output=json&exclude=expired"
 TIMEOUT_SECONDS = 30
 # Keep the number of requests to the free services small (fair use)
 MAX_LOOKALIKES = 25
 MAX_CERTIFICATES_IN_DETAILS = 5
+# A service that fails this many times in a row is skipped for the rest of the scan
+MAX_FAILURES_IN_A_ROW = 3
 USER_AGENT = "QN-Sentry certificate check"
 
 
 class CertificateLookupFailed(Exception):
-    """No CT service could be asked about one domain."""
+    """One domain could not be checked reliably."""
 
 
 @dataclass(frozen=True)
@@ -54,41 +82,95 @@ class Certificate:
     source: str  # which CT service found it
 
 
-def find_lookalike_certificates(lookalikes: list[Finding], *, now: datetime | None = None) -> list[Finding]:
-    """One finding per lookalike domain that has certificates in the CT logs."""
+@dataclass
+class CircuitBreaker:
+    """Skips a service for the rest of the scan after MAX_FAILURES_IN_A_ROW failures."""
+
+    failures: dict[str, int] = field(default_factory=dict)
+
+    def available(self, service: str) -> bool:
+        return self.failures.get(service, 0) < MAX_FAILURES_IN_A_ROW
+
+    def succeeded(self, service: str) -> None:
+        self.failures[service] = 0
+
+    def failed(self, service: str) -> None:
+        self.failures[service] = self.failures.get(service, 0) + 1
+
+
+def configured_api_key() -> str | None:
+    """CERTSPOTTER_API_KEY from Settings; the command-line tool has no database settings,
+    so it falls back to the environment."""
+    try:
+        from qnsentry.config import settings
+    except ValidationError:
+        return os.environ.get("CERTSPOTTER_API_KEY") or None
+    return settings.certspotter_api_key
+
+
+def find_lookalike_certificates(
+    lookalikes: list[Finding], *, now: datetime | None = None, api_key: str | None = None
+) -> list[Finding]:
+    """One finding per lookalike domain that has a valid certificate in the CT logs."""
     now = now or datetime.now(UTC)
     domains = [f for f in lookalikes if f.type == "lookalike_domain"][:MAX_LOOKALIKES]
-
+    breaker = CircuitBreaker()
     findings: list[Finding] = []
     failed: list[str] = []
     for lookalike in domains:
         try:
-            certificates = certificates_for(lookalike.asset)
+            certificates = certificates_for(lookalike.asset, breaker=breaker, api_key=api_key)
         except CertificateLookupFailed as error:
             log.warning("Certificate lookup for %s failed: %s", lookalike.asset, error)
-            failed.append(lookalike.asset)
+            failed.append(f"{lookalike.asset}: {error}")
             continue
-        if certificates:
-            findings.append(to_finding(lookalike, certificates, now))
-
+        valid = [c for c in certificates if c.not_after > now]
+        if valid:
+            findings.append(to_finding(lookalike, valid))
     if domains and len(failed) == len(domains):
-        raise RuntimeError("Certificate Transparency could not be searched: Cert Spotter and crt.sh both failed")
+        raise RuntimeError(f"Certificate Transparency could not be searched reliably: {failed[0]}")
     return findings
 
 
-def certificates_for(domain: str) -> list[Certificate]:
-    """Certificates for `domain` and its subdomains, from the first service that answers."""
-    errors = []
-    for name, fetch in (("Cert Spotter", from_certspotter), ("crt.sh", from_crtsh)):
+def certificates_for(
+    domain: str, *, breaker: CircuitBreaker | None = None, api_key: str | None = None
+) -> list[Certificate]:
+    """Unexpired certificates for `domain`: from Cert Spotter, or crt.sh as the backup."""
+    breaker = breaker or CircuitBreaker()
+    errors: list[str] = []
+
+    if breaker.available(CERTSPOTTER):
         try:
-            return fetch(domain)
+            certificates = from_certspotter(domain, api_key=api_key)
         except (OSError, ValueError, KeyError) as error:  # network, HTTP, JSON or format errors
-            errors.append(f"{name}: {error}")
-    raise CertificateLookupFailed("; ".join(errors))
+            breaker.failed(CERTSPOTTER)
+            errors.append(f"{CERTSPOTTER}: {error}")
+        else:
+            breaker.succeeded(CERTSPOTTER)
+            return certificates
+    else:
+        errors.append(f"{CERTSPOTTER}: skipped after {MAX_FAILURES_IN_A_ROW} failures in a row")
+
+    if not breaker.available(CRTSH):
+        errors.append(f"{CRTSH}: skipped after {MAX_FAILURES_IN_A_ROW} failures in a row")
+        raise CertificateLookupFailed("; ".join(errors))
+    try:
+        certificates = from_crtsh(domain)
+    except (OSError, ValueError, KeyError) as error:
+        breaker.failed(CRTSH)
+        errors.append(f"{CRTSH}: {error}")
+        raise CertificateLookupFailed("; ".join(errors)) from error
+    breaker.succeeded(CRTSH)
+    if not certificates:
+        # crt.sh can be hours behind: an empty answer from the backup is no proof
+        errors.append(f"{CRTSH} found none, but it can take hours to index new certificates")
+        raise CertificateLookupFailed("; ".join(errors))
+    return certificates
 
 
-def from_certspotter(domain: str) -> list[Certificate]:
-    return parse_certspotter(_get_json(CERTSPOTTER_URL.format(quote(domain))))
+def from_certspotter(domain: str, *, api_key: str | None = None) -> list[Certificate]:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    return parse_certspotter(_get_json(CERTSPOTTER_URL.format(quote(domain)), headers))
 
 
 def from_crtsh(domain: str) -> list[Certificate]:
@@ -104,7 +186,7 @@ def parse_certspotter(data: list[dict[str, Any]]) -> list[Certificate]:
             not_after=_date(entry["not_after"]),
             # Cert Spotter has no public page per certificate; crt.sh can look it up by fingerprint
             reference=f"https://crt.sh/?sha256={entry['cert_sha256']}",
-            source="Cert Spotter",
+            source=CERTSPOTTER,
         )
         for entry in data
     )
@@ -119,16 +201,16 @@ def parse_crtsh(data: list[dict[str, Any]]) -> list[Certificate]:
             not_before=_date(entry["not_before"]),
             not_after=_date(entry["not_after"]),
             reference=f"https://crt.sh/?id={entry['id']}",
-            source="crt.sh",
+            source=CRTSH,
         )
         for entry in data
     )
 
 
-def to_finding(lookalike: Finding, certificates: list[Certificate], now: datetime) -> Finding:
+def to_finding(lookalike: Finding, certificates: list[Certificate]) -> Finding:
+    """A finding for a lookalike with valid certificates."""
     name = lookalike.asset
     newest = sorted(certificates, key=lambda c: c.not_before, reverse=True)
-    valid = [c for c in newest if c.not_after > now]
     latest = newest[0]
     issued = f"issued by {latest.issuer} on {latest.not_before:%Y-%m-%d}"
 
@@ -137,10 +219,10 @@ def to_finding(lookalike: Finding, certificates: list[Certificate], now: datetim
         severity = Severity.INFO
         title = f"TLS certificate for the company's own lookalike domain {name}"
         description = (
-            f"There is a certificate for {name} ({issued}), but this lookalike domain appears to be "
-            "registered by the company itself, so it is most likely used on purpose."
+            f"There is a valid certificate for {name} ({issued}), but this lookalike domain appears "
+            "to be registered by the company itself, so it is most likely used on purpose."
         )
-    elif valid:
+    else:
         severity = Severity.HIGH
         title = f"TLS certificate issued for lookalike domain {name}"
         description = (
@@ -148,13 +230,6 @@ def to_finding(lookalike: Finding, certificates: list[Certificate], now: datetim
             "a website on that domain use HTTPS and show the padlock, so a phishing site looks "
             "trustworthy to employees and customers. It usually means a website is being set up "
             "on the domain. Check who owns it and consider a takedown request."
-        )
-    else:
-        severity = Severity.MEDIUM
-        title = f"Expired TLS certificate for lookalike domain {name}"
-        description = (
-            f"The lookalike domain {name} had a certificate ({issued}), which has expired. The domain "
-            "was used for a website before and can be used again at any time."
         )
 
     return Finding(
@@ -165,7 +240,7 @@ def to_finding(lookalike: Finding, certificates: list[Certificate], now: datetim
         severity=severity,
         asset=name,
         details={
-            "valid_now": bool(valid),
+            "source": latest.source,
             "certificate_count": len(newest),
             "certificates": [
                 {
@@ -185,8 +260,10 @@ def to_finding(lookalike: Finding, certificates: list[Certificate], now: datetim
 # ---------- Helpers ----------
 
 
-def _get_json(url: str) -> Any:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+def _get_json(url: str, headers: dict[str, str] | None = None) -> Any:
+    request = urllib.request.Request(
+        url, headers={"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
+    )
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
 

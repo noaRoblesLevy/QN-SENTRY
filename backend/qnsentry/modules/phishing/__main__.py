@@ -17,7 +17,7 @@ import sys
 import time
 from dataclasses import asdict
 
-from qnsentry.modules.phishing.certificates import find_lookalike_certificates
+from qnsentry.modules.phishing.certificates import configured_api_key, find_lookalike_certificates
 from qnsentry.modules.phishing.email_security import check_email_security
 from qnsentry.modules.phishing.lookalikes import find_lookalike_domains, generate_permutations
 
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
             findings += lookalikes
             if args.check in ("all", "certificates"):
                 print(f"Searching Certificate Transparency for {len(lookalikes)} lookalike(s) ...", file=sys.stderr)
-                findings += find_lookalike_certificates(lookalikes)
+                findings += find_lookalike_certificates(lookalikes, api_key=configured_api_key())
         if args.check in ("all", "email"):
             print(f"Checking SPF, DMARC and DKIM of {args.domain} ...", file=sys.stderr)
             findings += check_email_security(args.domain, nameservers=nameservers)

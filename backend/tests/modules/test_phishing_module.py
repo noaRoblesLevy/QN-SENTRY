@@ -27,7 +27,7 @@ LOOKALIKE = lookalikes.to_finding({"fuzzer": "homoglyph", "domain": "badsecurity
 
 
 def fake_certificates(calls, result=None, error=None):
-    def check(found):
+    def check(found, **kwargs):
         calls.append(("certificates", [f.asset for f in found]))
         if error:
             raise error

@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 
 from qnsentry.modules.base import Finding, Module, ScanContext
-from qnsentry.modules.phishing.certificates import find_lookalike_certificates
+from qnsentry.modules.phishing.certificates import configured_api_key, find_lookalike_certificates
 from qnsentry.modules.phishing.constants import MODULE
 from qnsentry.modules.phishing.email_security import check_email_security
 from qnsentry.modules.phishing.lookalikes import find_lookalike_domains
@@ -36,7 +36,10 @@ class PhishingModule(Module):
             certificates: list[Finding] = []
         else:
             certificates = self._check(
-                "lookalike certificates", lambda: find_lookalike_certificates(lookalikes), domain, errors
+                "lookalike certificates",
+                lambda: find_lookalike_certificates(lookalikes, api_key=configured_api_key()),
+                domain,
+                errors,
             )
         email = self._check(
             "email security", lambda: check_email_security(domain, nameservers=self.nameservers), domain, errors
