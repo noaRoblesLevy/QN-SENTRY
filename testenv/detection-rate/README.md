@@ -50,8 +50,8 @@ And three numbers for the conclusion:
 
 | Measured | Scan | Ground truth | Detection rate | Expected severity | Precision | Pending |
 |---|---|---|---|---|---|---|
-| 01/10/2026 | 2: `main` plus #49 to #54 | `d6f7cb3` | 16/16 (100%) | 100% | 100% | 12 |
-| 01/10/2026 | 3: `main` plus #53, without #49 | `d6f7cb3` | 15/16 (94%): lookalike certificate missed | 94% | 100% | 12 |
+| 01/10/2026 | 2: `main` plus #49 to #54 | `fb2f8aa` | 16/16 (100%) | 100% | 100% | 12 |
+| 01/10/2026 | 3: `main` plus #53, without #49 | `fb2f8aa` | 15/16 (94%): lookalike certificate missed | 94% | 100% | 12 |
 
 Per module for scan 2: Metadata 11/11, Phishing 5/5; Attack Surface (5) and Breach (6) and the email convention (1) are pending. Scan 3 shows the measurement doing its job: without the certificate check of #49, `ph-certificate` is reported as missed.
 
