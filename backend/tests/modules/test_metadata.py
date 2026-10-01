@@ -339,7 +339,8 @@ def test_failed_pages_on_a_reachable_site_are_counted_in_one_warning(monkeypatch
 
 def test_crawl_that_hits_its_time_limit_is_a_warning(monkeypatch):
     fake_katana(monkeypatch, stdout=f'{{"request": {{"endpoint": "{SITE}"}}}}\n')
-    clock = iter([0.0, float(crawler.CRAWL_SECONDS)])
+    # Start of the crawl, before the first katana run, after the crawl
+    clock = iter([0.0, 0.0, float(crawler.CRAWL_SECONDS)])
     monkeypatch.setattr(crawler.time, "monotonic", lambda: next(clock))
     warnings = []
 
