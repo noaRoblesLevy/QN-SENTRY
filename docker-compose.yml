@@ -21,6 +21,18 @@ services:
       timeout: 3s
       retries: 10
 
+  # Brings the database schema up to date (Alembic migrations), then exits.
+  # The api and worker only start after it succeeded.
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    env_file: .env
+    command: ["python", "-m", "qnsentry.db.migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     build:
       context: ./backend
@@ -29,8 +41,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
@@ -40,8 +52,8 @@ services:
       dockerfile: Dockerfile.worker
     env_file: .env
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
