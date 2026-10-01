@@ -9,6 +9,7 @@ Scanning systems without the owner's permission can constitute unauthorised acce
 | Measure | How it is enforced | Status |
 |---|---|---|
 | Only our own infrastructure during the project | All tests target `badsecurityinc.be` and `badsecuritylnc.be`, registered by the team, and the team's own Vercel projects and Google Cloud VM | In place |
+| False-positive checks on real domains | To check that a check does not report problems that are not there, its evaluation is also run on real, well-configured domains (e.g. the SPF check of #44 on 12 domains such as `kdg.be` and `github.com`). This only reads **public DNS records** through a normal resolver: no request reaches the servers of those organisations, and the results are not stored. Scans, crawling, downloads and port scans only ever target our own domains | In place |
 | Target allowlist | Scans can only be started for domains an administrator has approved; the API refuses others | Planned: #3 |
 | Domain ownership verification | Before approval, the client proves ownership by adding a DNS TXT record (`qn-sentry-verify=<token>`) | Planned: #48 (*Should*) |
 | Permission on record | When a domain is added, the dashboard states that only domains you own or have written permission to scan may be added | In place (dashboard, #31) |
