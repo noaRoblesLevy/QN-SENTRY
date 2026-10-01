@@ -77,7 +77,7 @@ The API and the worker no longer create tables themselves: when running them out
 
 1. `POST /api/domains/{id}/scans` stores a scan (`queued`) with one module run per module (`pending`) and puts a task in Redis. The API does not wait for the scan.
 2. A Celery worker picks up the task and runs the modules one after another, in the order of `MODULES` in `backend/qnsentry/modules/__init__.py`.
-3. For each module, the worker marks it `running`, calls `module.run(context)`, stores the returned findings and marks it `completed`. If a module raises an exception, it is marked `failed` with the error message and the next module still runs.
+3. For each module, the worker marks it `running`, calls `module.run(context)`, stores the returned findings and its warnings, and marks it `completed`. If a module raises an exception, it is marked `failed` with the error message and the next module still runs.
 4. The scan ends as `completed`, or `partial` when at least one module failed. The dashboard polls `GET /api/scans/{id}` to show the progress.
 
 ## Finding format
@@ -129,7 +129,7 @@ Rules (contract 10.3):
 
 - **Never write to the database.** Return the findings; the worker stores them. This keeps modules testable without a database.
 - **Share information through the context.** Read what earlier modules found (e.g. `context.person_names` from Metadata) and fill in what later modules need.
-- **Partial failure:** if part of the module fails but it still has useful results, catch the error, log a warning and return what you have.
+- **Partial failure:** if part of the module fails but it still has useful results, catch the error, call `context.warn("One readable sentence, with a count and without personal data")` and return what you have. The warning is shown with the module in the dashboard and the report.
 - **Total failure:** if the module cannot run at all (e.g. a tool is missing), raise an exception. The worker marks the module as `failed` and continues.
 - **External tools** (subfinder, nmap, dnstwist, ...) are installed in `backend/Dockerfile.worker`.
 
