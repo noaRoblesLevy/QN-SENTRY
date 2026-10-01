@@ -182,12 +182,12 @@ These are added by their own issues and are not part of the walking skeleton (#1
 
 | Endpoint | Request body | Success | Response |
 |---|---|---|---|
-| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`), `risk_score`, `risk_level` (10.7) |
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`), `risk_score`, `risk_level`, `risk_complete` (10.7) |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
-| `GET /api/clients/{id}` | | `200` | The client with `risk_score` and `risk_level`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`), newest first |
+| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level` and `risk_complete`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`), newest first |
 | `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be"}` | `201` | The new domain: `id`, `name` |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
-| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score` and `risk_level` (10.7) |
+| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level` and `risk_complete` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
 
 Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
@@ -215,7 +215,7 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 
 ## 10.7 Risk Score
 
-One number from 0 to 100 that summarises a scan for management (#19). **Proposal, to be agreed in review**; the values live in one place (`backend/qnsentry/risk.py`).
+One number from 0 to 100 that summarises a scan for management (#19). Agreed in the review of #53; the values live in one place (`backend/qnsentry/risk.py`).
 
 1. Every finding adds points by severity:
 
@@ -227,9 +227,19 @@ One number from 0 to 100 that summarises a scan for management (#19). **Proposal
 | `low` | 1 |
 | `info` | 0 |
 
-2. `score = 100 × (1 − e^(−points / 50))`, rounded.
+2. `curve = 100 × (1 − e^(−points / 50))`, rounded.
+3. `score = max(curve, floor of the worst finding)`:
 
-This gives diminishing returns: the first serious findings raise the score the most, the score never exceeds 100, and adding a finding never lowers it. A plain sum would reach 100 after a few findings and stop telling anything apart; an average would drop when harmless findings are added.
+| Worst finding | Floor |
+|---|---|
+| `critical` | 75 (very high) |
+| `high` | 50 (high) |
+| `medium` | 25 (moderate) |
+| `low`, `info` | 0 |
+
+The curve gives diminishing returns: the first serious findings raise the score the most, the score never exceeds 100, and adding a finding never lowers it. A plain sum would reach 100 after a few findings and stop telling anything apart; an average would drop when harmless findings are added.
+
+The floor makes the level match the worst finding: with the curve alone, one critical finding ("fix immediately", 10.2) would score 39 "moderate", and a manager who only reads the level would be misled. Above the floor the curve decides, so many findings still weigh more than one.
 
 | Score | Level (`risk_level`) |
 |---|---|
@@ -241,12 +251,16 @@ This gives diminishing returns: the first serious findings raise the score the m
 | Example | Points | Score |
 |---|---|---|
 | Only `info` findings | 0 | 0, low |
-| One `high` | 10 | 18, low |
-| One `critical` | 25 | 39, moderate |
-| Test environment on 30/09: 6 high, 2 medium, 1 low | 69 | 75, very high |
+| One `medium` | 4 | 25, moderate (floor; curve 8) |
+| One `high` | 10 | 50, high (floor; curve 18) |
+| One `critical` | 25 | 75, very high (floor; curve 39) |
+| 20 `low` | 20 | 33, moderate (curve) |
+| Real scan of `badsecurityinc.be` on 30/09: 4 high, 4 medium, 8 low | 64 | 72, high (curve) |
+| Full ground truth of the test environment (#47): 7 high, 6 medium, 9 low | 103 | 87, very high (curve) |
 
 Rules:
 - **Scan:** only a `completed` or `partial` scan has a score. While a scan runs the findings are incomplete, and a `failed` scan would look safe because it found little: both return `null`.
-- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score.
+- **Partial scan:** keeps its score, with `risk_complete: false`, because a failed module may have missed findings. The dashboard marks the score with an asterisk and shows "Based on 3 of 4 modules". `risk_complete` is `true` for a completed scan and `null` without a score.
+- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score; `risk_complete` comes from that scan.
 - The score is **computed from the stored findings** when it is requested, not stored separately, so it always matches the findings. Changing the weights therefore also changes the score of older scans.
 

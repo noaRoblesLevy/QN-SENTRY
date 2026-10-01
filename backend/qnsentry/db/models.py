@@ -74,6 +74,10 @@ class Client(Base):
     def risk_level(self) -> str | None:
         return self.risk.level if self.risk else None
 
+    @property
+    def risk_complete(self) -> bool | None:
+        return self.risk.complete if self.risk else None
+
 
 class Domain(Base):
     __tablename__ = "domains"
@@ -134,7 +138,11 @@ class Scan(Base):
         """
         if self.status not in (ScanStatus.COMPLETED, ScanStatus.PARTIAL):
             return None
-        return compute_risk(finding.severity for finding in self.findings)
+        return compute_risk(
+            (finding.severity for finding in self.findings),
+            # A partial scan keeps its score, flagged: a failed module may have missed findings
+            complete=self.status == ScanStatus.COMPLETED,
+        )
 
     @property
     def risk_score(self) -> int | None:
@@ -143,6 +151,10 @@ class Scan(Base):
     @property
     def risk_level(self) -> str | None:
         return self.risk.level if self.risk else None
+
+    @property
+    def risk_complete(self) -> bool | None:
+        return self.risk.complete if self.risk else None
 
     def mark_failed(self, reason: str) -> None:
         """End the scan as failed; modules that had not finished get `reason` as error."""

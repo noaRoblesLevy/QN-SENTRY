@@ -17,12 +17,17 @@ def test_empty_or_only_informational_findings_score_zero():
     ("severities", "score", "level"),
     [
         (["low"], 2, "low"),
-        (["medium"], 8, "low"),
-        (["high"], 18, "low"),
-        (["high", "high"], 33, "moderate"),
-        (["critical"], 39, "moderate"),
-        # The test environment on 30/09: 6 high, 2 medium, 1 low
-        (["high"] * 6 + ["medium"] * 2 + ["low"], 75, "very_high"),
+        # One finding: the floor of its severity, so the level matches the severity
+        (["medium"], 25, "moderate"),
+        (["high"], 50, "high"),
+        (["critical"], 75, "very_high"),
+        (["high", "high"], 50, "high"),
+        # Many low findings still add up through the curve
+        (["low"] * 20, 33, "moderate"),
+        # Real scan of 30/09: metadata 4 medium + 7 low, phishing 4 high + 1 low
+        (["medium"] * 4 + ["low"] * 8 + ["high"] * 4, 72, "high"),
+        # Full ground truth of the test environment (#47): 7 high, 6 medium, 9 low
+        (["high"] * 7 + ["medium"] * 6 + ["low"] * 9, 87, "very_high"),
     ],
 )
 def test_documented_examples(severities, score, level):
@@ -39,6 +44,13 @@ def test_adding_a_finding_never_lowers_the_score():
         score = compute_risk(severities).score
         assert previous <= score <= 100
         previous = score
+
+
+def test_floor_only_applies_to_the_worst_finding():
+    # Above the floor the curve decides, so more findings still weigh more than one
+    assert compute_risk(["high"] * 10).score > compute_risk(["high"]).score
+    assert compute_risk(["medium", "info", "info"]).score == 25
+    assert compute_risk(["info"]).score == 0
 
 
 def test_accepts_severity_enums_from_the_database():
@@ -63,8 +75,14 @@ def test_unfinished_or_failed_scan_has_no_score(status):
 
 
 def test_finished_and_partial_scans_have_a_score():
-    assert scan(ScanStatus.COMPLETED, Severity.HIGH).risk_score == 18
-    assert scan(ScanStatus.PARTIAL, Severity.HIGH, Severity.HIGH).risk_level == "moderate"
+    assert scan(ScanStatus.COMPLETED, Severity.HIGH).risk_score == 50
+    assert scan(ScanStatus.PARTIAL, Severity.HIGH, Severity.HIGH).risk_level == "high"
+
+
+def test_partial_scan_keeps_its_score_but_is_flagged_incomplete():
+    assert scan(ScanStatus.COMPLETED, Severity.HIGH).risk_complete is True
+    assert scan(ScanStatus.PARTIAL, Severity.HIGH).risk_complete is False
+    assert scan(ScanStatus.RUNNING, Severity.HIGH).risk_complete is None
 
 
 def test_client_risk_is_the_riskiest_domain_using_its_latest_scored_scan():
@@ -76,8 +94,15 @@ def test_client_risk_is_the_riskiest_domain_using_its_latest_scored_scan():
     site = models.Domain(name="site.example", scans=[scan(ScanStatus.COMPLETED, Severity.LOW, scan_id=1)])
     client = models.Client(name="Example", domains=[site, shop])
 
-    assert client.risk_score == 39
-    assert client.risk_level == "moderate"
+    assert client.risk_score == 75
+    assert client.risk_level == "very_high"
+
+
+def test_client_risk_carries_the_completeness_of_the_scan_it_comes_from():
+    shop = models.Domain(name="shop.example", scans=[scan(ScanStatus.PARTIAL, Severity.HIGH, scan_id=2)])
+    site = models.Domain(name="site.example", scans=[scan(ScanStatus.COMPLETED, Severity.LOW, scan_id=1)])
+
+    assert models.Client(name="Example", domains=[site, shop]).risk_complete is False
 
 
 def test_client_without_scored_scans_has_no_risk():

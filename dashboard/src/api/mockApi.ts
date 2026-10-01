@@ -104,7 +104,12 @@ function progress(scan: StoredScan, now = Date.now()) {
 /** Risk of a scan (data contract 10.7): only completed and partial scans have a score */
 function scanRisk(scan: StoredScan): Risk {
   const { status, findings } = progress(scan)
-  return status === 'completed' || status === 'partial' ? computeRisk(findings.map((f) => f.severity)) : NO_RISK
+  return status === 'completed' || status === 'partial'
+    ? computeRisk(
+        findings.map((f) => f.severity),
+        status === 'completed',
+      )
+    : NO_RISK
 }
 
 function summary(scan: StoredScan): ScanSummary {

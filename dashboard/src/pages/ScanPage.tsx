@@ -90,6 +90,11 @@ function ScanView({ scanId }: { scanId: number }) {
           <div className="stat-label">Risk score</div>
           <div className="stat-value">{scan.risk_score ?? '-'}</div>
           <RiskBadge risk={scan} showScore={false} />
+          {scan.risk_complete === false && (
+            <div className="stat-note">
+              Based on {scan.modules.filter((m) => m.status === 'completed').length} of {scan.modules.length} modules
+            </div>
+          )}
         </div>
         <StatPanel label="Findings" value={findings.length} />
         {SEVERITIES.map((severity) => (

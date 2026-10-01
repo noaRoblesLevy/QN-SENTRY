@@ -14,6 +14,8 @@ export type RiskLevel = 'low' | 'moderate' | 'high' | 'very_high'
 export type Risk = {
   risk_score: number | null
   risk_level: RiskLevel | null
+  // false when the score comes from a partial scan (a module failed)
+  risk_complete: boolean | null
 }
 
 export type ScanSummary = Risk & {

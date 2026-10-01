@@ -91,6 +91,7 @@ def get_scan(scan_id: int, db: Session = Depends(get_db)) -> ScanOut:
         modules=[ModuleRunOut.model_validate(run) for run in scan.module_runs],
         risk_score=scan.risk_score,
         risk_level=scan.risk_level,
+        risk_complete=scan.risk_complete,
     )
 
 
