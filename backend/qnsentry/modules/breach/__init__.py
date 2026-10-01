@@ -6,11 +6,22 @@ are added in #12. Until the Metadata module exists, the context has no addresses
 module returns no findings.
 """
 
+import logging
 from collections.abc import Callable
 
 from qnsentry.db.models import Severity
 from qnsentry.modules.base import Finding, Module, ScanContext
-from qnsentry.modules.breach.sources import Breach, BreachSource, get_breach_source
+from qnsentry.modules.breach.sources import (
+    FABRICATED,
+    MALWARE,
+    SPAM_LIST,
+    Breach,
+    BreachSource,
+    LookupUnavailable,
+    get_breach_source,
+)
+
+log = logging.getLogger(__name__)
 
 MODULE = "breach"
 FINDING_TYPE = "breached_email"
@@ -36,21 +47,51 @@ class BreachModule(Module):
 
     def run(self, context: ScanContext) -> list[Finding]:
         source = self.source_factory()
+        emails = sorted({e.strip().lower() for e in context.emails if e.strip()})
         findings = []
-        for email in sorted({e.strip().lower() for e in context.emails if e.strip()}):
-            breaches = source.lookup(email)
-            if breaches:
-                findings.append(to_finding(email, breaches, origin="found publicly", attribution=source.attribution))
+        skipped = []
+        for email in emails:
+            try:
+                breaches = source.lookup(email)
+            except LookupUnavailable as error:
+                # Skip only this address and keep what the others found (contract 10.3.1).
+                # The address itself is not logged: it is personal data.
+                log.warning("Breach lookup of one address skipped: %s", error)
+                skipped.append(str(error))
+                continue
+            finding = to_finding(email, breaches, origin="found publicly", source=source)
+            if finding:
+                findings.append(finding)
+        if emails and len(skipped) == len(emails):
+            raise RuntimeError(f"No address could be checked: {skipped[0]}")
         return findings
 
 
-def to_finding(email: str, breaches: list[Breach], origin: str, attribution: str | None = None) -> Finding:
+def to_finding(
+    email: str, breaches: list[Breach], origin: str, source: BreachSource | None = None
+) -> Finding | None:
+    """One finding for an address, or None when only fabricated breaches remain."""
+    # A fabricated breach is probably fake data: reporting it would cause needless alarm
+    breaches = [b for b in breaches if FABRICATED not in b.flags]
+    if not breaches:
+        return None
     exposed = sorted({data for breach in breaches for data in breach.data_classes})
-    sensitive = sorted(set(exposed) & SENSITIVE_DATA)
+    # A spam list is a list of addresses, not a compromise: it never raises the severity
+    compromised = [b for b in breaches if SPAM_LIST not in b.flags]
+    sensitive = sorted({d for b in compromised for d in b.data_classes} & SENSITIVE_DATA)
+    malware = [b.name for b in breaches if MALWARE in b.flags]
     count = len(breaches)
     title = f"{email} appears in {count} data breach{'es' if count != 1 else ''}"
 
-    if sensitive:
+    if malware:
+        severity = Severity.HIGH
+        description = (
+            "This business email address appears in data stolen by malware "
+            f"({', '.join(malware)}): the login details were taken from a device the employee "
+            "used, not from a website. Have that device checked for malware, change the passwords "
+            "that were used on it and turn on multi-factor authentication."
+        )
+    elif sensitive:
         severity = Severity.HIGH
         description = (
             f"This business email address appears in known data breaches that exposed "
@@ -59,7 +100,7 @@ def to_finding(email: str, breaches: list[Breach], origin: str, attribution: str
             "systems (credential stuffing). Ask the employee to change the password everywhere it "
             "was used and turn on multi-factor authentication."
         )
-    elif set(exposed) <= ONLY_ADDRESS:
+    elif not compromised or {d for b in compromised for d in b.data_classes} <= ONLY_ADDRESS:
         # Only the address itself leaked (e.g. a spam list): it barely helps an attacker
         severity = Severity.LOW
         description = (
@@ -74,6 +115,8 @@ def to_finding(email: str, breaches: list[Breach], origin: str, attribution: str
             "exposed, but attackers know the address is real and can use the leaked details to "
             "make phishing emails more convincing."
         )
+    if source and source.note:
+        description += f" {source.note}"
 
     return Finding(
         module=MODULE,
@@ -86,10 +129,10 @@ def to_finding(email: str, breaches: list[Breach], origin: str, attribution: str
             "origin": origin,
             # Only name, date and the kinds of data: never the leaked data itself (GDPR)
             "breaches": [
-                {"name": b.name, "date": b.date, "data": list(b.data_classes)}
+                {"name": b.name, "date": b.date, "data": list(b.data_classes), "flags": sorted(b.flags)}
                 for b in sorted(breaches, key=lambda b: b.date, reverse=True)
             ],
             "exposed_data": exposed,
-            **({"source": attribution} if attribution else {}),
+            **({"source": source.attribution} if source and source.attribution else {}),
         },
     )

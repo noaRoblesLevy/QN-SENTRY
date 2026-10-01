@@ -17,7 +17,11 @@ from qnsentry.modules.breach.sources import (
     Breach,
     BreachSource,
     HibpSource,
+    MALWARE,
+    SPAM_LIST,
+    UNVERIFIED,
     LocalDatasetSource,
+    LookupUnavailable,
     get_breach_source,
 )
 
@@ -128,6 +132,8 @@ class FakeHibp:
     def __call__(self, request, timeout):
         self.requests.append(request)
         answer = self.responses.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
         if isinstance(answer, int):
             headers = {"Retry-After": "3"} if answer == 429 else {}
             raise urllib.error.HTTPError(request.full_url, answer, "error", headers, io.BytesIO())
@@ -191,8 +197,64 @@ def test_hibp_retries_after_429_with_the_retry_after_delay():
 
 def test_hibp_gives_up_after_repeated_429():
     source, _, _ = hibp(429, 429, min_interval=0, max_retries=1)
-    with pytest.raises(RuntimeError, match="429"):
+    with pytest.raises(LookupUnavailable, match="429"):
         source.lookup("jan.peeters@badsecurityinc.be")
+
+
+@pytest.mark.parametrize(
+    "first_error", [503, urllib.error.URLError("connection reset"), TimeoutError("timed out")], ids=["503", "network", "timeout"]
+)
+def test_hibp_retries_a_transient_error_once(first_error):
+    source, fake, clock = hibp(first_error, [HIBP_SHOP], min_interval=0, transient_wait=2.0)
+
+    assert source.lookup("jan.peeters@badsecurityinc.be")[0].name == "ExampleShop"
+    assert len(fake.requests) == 2
+    assert clock.slept == [2.0]
+
+
+def test_hibp_transient_error_twice_makes_only_that_address_unavailable():
+    source, _, _ = hibp(503, 503, min_interval=0)
+    with pytest.raises(LookupUnavailable, match="503"):
+        source.lookup("jan.peeters@badsecurityinc.be")
+
+
+def test_module_skips_an_address_that_cannot_be_checked_and_keeps_the_others():
+    # Reviewer's probe: three addresses, the middle one gets a 503 (twice)
+    source, _, _ = hibp([HIBP_SHOP], 503, 503, [HIBP_SHOP], min_interval=0)
+    emails = ["a@badsecurityinc.be", "b@badsecurityinc.be", "c@badsecurityinc.be"]
+
+    findings = BreachModule(lambda: source).run(ScanContext(domain="", emails=emails))
+
+    assert [f.asset for f in findings] == ["a@badsecurityinc.be", "c@badsecurityinc.be"]
+
+
+def test_module_fails_when_no_address_could_be_checked():
+    source, _, _ = hibp(503, 503, 503, 503, min_interval=0)
+    emails = ["a@badsecurityinc.be", "b@badsecurityinc.be"]
+
+    with pytest.raises(RuntimeError, match="No address could be checked"):
+        BreachModule(lambda: source).run(ScanContext(domain="", emails=emails))
+
+
+@pytest.mark.parametrize(("code", "message"), [(401, "API key is invalid"), (403, "access denied")])
+def test_hibp_fatal_errors_stop_at_the_first_address(code, message):
+    source, fake, _ = hibp(code, min_interval=0)
+    emails = ["a@badsecurityinc.be", "b@badsecurityinc.be"]
+
+    with pytest.raises(RuntimeError, match=message) as error:
+        BreachModule(lambda: source).run(ScanContext(domain="", emails=emails))
+
+    assert not isinstance(error.value, LookupUnavailable)
+    assert len(fake.requests) == 1
+
+
+def test_hibp_reads_the_breach_flags():
+    entry = {**HIBP_SHOP, "IsVerified": False, "IsSpamList": True, "IsStealerLog": True, "IsFabricated": False}
+    source, _, _ = hibp([entry])
+
+    [breach] = source.lookup("jan.peeters@badsecurityinc.be")
+
+    assert breach.flags == {UNVERIFIED, SPAM_LIST, MALWARE}
 
 
 def test_hibp_invalid_key_fails_the_module_instead_of_reporting_nothing():
@@ -201,10 +263,17 @@ def test_hibp_invalid_key_fails_the_module_instead_of_reporting_nothing():
         BreachModule(lambda: source).run(ScanContext(domain="badsecurityinc.be", emails=["jan.peeters@badsecurityinc.be"]))
 
 
-def test_hibp_findings_credit_the_source():
+def test_hibp_findings_credit_the_source_and_say_the_list_can_be_incomplete():
     source, _, _ = hibp([HIBP_SHOP])
     [finding] = BreachModule(lambda: source).run(ScanContext(domain="", emails=["jan.peeters@badsecurityinc.be"]))
     assert "haveibeenpwned.com" in finding.details["source"]
+    assert "can be incomplete" in finding.description
+
+
+def test_local_source_findings_have_no_hibp_note():
+    finding = to_finding("jan.peeters@badsecurityinc.be", [SHOP], origin="found publicly", source=FakeSource({}))
+    assert "Have I Been Pwned" not in finding.description
+    assert "source" not in finding.details
 
 
 def test_hibp_needs_an_api_key():
@@ -225,10 +294,33 @@ def test_breach_with_passwords_is_high():
     assert "passwords" in finding.description
     # Newest breach first, and only name, date and kinds of data (GDPR data minimisation)
     assert finding.details["breaches"] == [
-        {"name": "ExampleShop", "date": "2021-06-22", "data": ["Email addresses", "Passwords"]},
-        {"name": "FictionalBikeForum", "date": "2019-03-10", "data": ["Email addresses", "Usernames"]},
+        {"name": "ExampleShop", "date": "2021-06-22", "data": ["Email addresses", "Passwords"], "flags": []},
+        {"name": "FictionalBikeForum", "date": "2019-03-10", "data": ["Email addresses", "Usernames"], "flags": []},
     ]
     assert finding.details["exposed_data"] == ["Email addresses", "Passwords", "Usernames"]
+
+
+def test_fabricated_breaches_are_left_out():
+    fake = Breach("ProbablyFake", "2020-01-01", ("Email addresses", "Passwords"), frozenset({"fabricated"}))
+
+    assert to_finding("a@badsecurityinc.be", [fake], origin="found publicly") is None
+    assert to_finding("a@badsecurityinc.be", [fake, FORUM], origin="found publicly").severity == Severity.MEDIUM
+
+
+def test_a_spam_list_never_raises_the_severity():
+    # A spam list is not a compromise, even when it lists more than the address
+    spam = Breach("SpamListWithNames", "2022-01-01", ("Email addresses", "Names", "Passwords"), frozenset({SPAM_LIST}))
+
+    assert to_finding("a@badsecurityinc.be", [spam], origin="found publicly").severity == Severity.LOW
+
+
+def test_stolen_by_malware_is_high_and_says_to_check_the_device():
+    stealer = Breach("StealerLogs", "2025-01-01", ("Email addresses", "Passwords"), frozenset({MALWARE}))
+
+    finding = to_finding("a@badsecurityinc.be", [stealer], origin="found publicly")
+
+    assert finding.severity == Severity.HIGH
+    assert "device" in finding.description and "malware" in finding.description
 
 
 def test_breach_without_passwords_is_medium():
