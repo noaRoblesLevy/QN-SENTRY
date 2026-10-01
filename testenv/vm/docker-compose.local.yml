@@ -1,0 +1,12 @@
+# Local test of the VM services, next to QN-Sentry itself (its dashboard uses 8080).
+# Only reachable from this machine:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+# with STAGING_ADDRESS=http://localhost:8081 in .env
+services:
+  staging:
+    ports: !override
+      - "127.0.0.1:8081:8081"
+
+  decoy-ssh:
+    ports: !override
+      - "127.0.0.1:2222:2222"

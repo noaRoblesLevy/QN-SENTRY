@@ -4,16 +4,23 @@
 }
 
 {$STAGING_ADDRESS} {
-	# Decoy login: every attempt fails, nothing is behind it
+	# Decoy login: every attempt fails, nothing is behind it. The request body is never
+	# read or stored, and Caddy keeps no access log unless it is turned on.
 	@login path /login
 	respond @login "Invalid username or password" 401
+
+	# Keep the decoy out of search engines (legal framework 5.4)
+	respond /robots.txt `User-agent: *
+Disallow: /
+` 200
 
 	root * /srv/staging
 	file_server
 
-	# Pretend to be an outdated stack. Caddy itself is up to date.
 	header {
+		# Pretend to be an outdated stack. Caddy itself is up to date.
 		Server "nginx/1.18.0"
 		X-Powered-By "PHP/7.4.3"
+		X-Robots-Tag "noindex, nofollow"
 	}
 }
