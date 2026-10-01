@@ -56,18 +56,22 @@ After changing a model, generate the migration with the next number (`0002`, `00
 
 ```bash
 docker compose up -d db
-docker compose run --rm -u root -v ./backend/qnsentry/db/migrations/versions:/app/qnsentry/db/migrations/versions   migrate alembic revision --autogenerate --rev-id 0002 -m "add warnings to module runs"
+docker compose run --rm -u root -v ./backend/qnsentry/db/migrations/versions:/app/qnsentry/db/migrations/versions migrate alembic revision --autogenerate --rev-id 0002 -m "add warnings to module runs"
 ```
+
+On Linux, add `-u "$(id -u):$(id -g)"` instead of `-u root`, or the generated file is owned by root (Docker Desktop on Windows and macOS handles this itself).
 
 Always read the generated file before committing it: autogenerate can miss changes (a renamed column becomes a drop and an add) and writes the CHECK constraint of an enum column twice; remove those `sa.CheckConstraint` lines, the `sa.Enum` creates the constraint itself.
 
-To check that the models and the migrations match (prints `No new upgrade operations detected`):
+Before merging a pull request that changes a model, check that the models and the migrations match (prints `No new upgrade operations detected`):
 
 ```bash
 docker compose run --rm migrate alembic check
 ```
 
 Databases created before Alembic (by `create_all`) are marked as migration `0001` the first time `migrate` runs, without changing their tables.
+
+The API and the worker no longer create tables themselves: when running them outside Docker, run `python -m qnsentry.db.migrate` first.
 
 ## How a scan runs
 
