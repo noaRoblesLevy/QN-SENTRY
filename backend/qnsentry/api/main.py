@@ -1,5 +1,3 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -7,18 +5,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from qnsentry.api.routers import clients, scans
-from qnsentry.db.models import Base
 from qnsentry.db.session import engine
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Create missing database tables at startup."""
-    Base.metadata.create_all(bind=engine)
-    yield
-
-
-app = FastAPI(title="QN-Sentry API", lifespan=lifespan)
+# The "migrate" service creates and updates the database schema before the API starts
+app = FastAPI(title="QN-Sentry API")
 app.include_router(clients.router)
 app.include_router(scans.router)
 
