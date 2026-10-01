@@ -3,12 +3,15 @@
 import os
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 # The worker modules read Settings when they are imported; tests need no real database
 for name, value in {"POSTGRES_USER": "test", "POSTGRES_PASSWORD": "test", "POSTGRES_DB": "test"}.items():
     os.environ.setdefault(name, value)
 
+from qnsentry.config import Settings  # noqa: E402
 from qnsentry.worker import retention  # noqa: E402
 from qnsentry.worker.celery_app import celery_app  # noqa: E402
 
@@ -21,17 +24,35 @@ def sql(statement) -> tuple[str, dict]:
 
 
 def test_deletes_finished_scans_older_than_the_retention_period():
-    text, params = sql(retention.expired_scans(NOW, 90))
+    text, params = sql(retention.expired_scans(NOW, 90, 120))
 
     assert text.startswith("DELETE FROM scans WHERE scans.created_at <")
     assert params["created_at_1"] == datetime(2026, 9, 30, 3, 0, tzinfo=UTC)  # 90 days earlier
 
 
-def test_never_deletes_a_scan_that_is_still_queued_or_running():
-    text, params = sql(retention.expired_scans(NOW, 90))
+def test_keeps_a_queued_or_running_scan_unless_it_is_stuck():
+    # Finished, or older than the scan timeout: a running scan that old will never finish
+    text, params = sql(retention.expired_scans(NOW, 90, 120))
 
-    assert "scans.status NOT IN" in text
+    assert "(scans.status NOT IN" in text and " OR scans.created_at <" in text
     assert set(params["status_1"]) == {"queued", "running"}
+    assert params["created_at_2"] == datetime(2026, 12, 29, 1, 0, tzinfo=UTC)  # 120 minutes earlier
+
+
+@pytest.mark.parametrize("days", [0, -1])
+def test_a_retention_period_below_one_day_is_refused(days):
+    # A typo in .env must not delete every result each night
+    with pytest.raises(ValidationError, match="retention_days"):
+        Settings(postgres_user="u", postgres_password="p", postgres_db="d", retention_days=days)
+
+
+def test_clean_up_also_runs_when_a_worker_starts(monkeypatch):
+    queued = []
+    monkeypatch.setattr(retention.delete_expired_scans, "delay", lambda: queued.append(True))
+
+    retention.worker_ready.send(sender=None)
+
+    assert queued == [True]
 
 
 def test_task_deletes_commits_and_reports_the_number(monkeypatch):

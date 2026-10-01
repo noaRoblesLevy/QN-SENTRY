@@ -33,6 +33,7 @@ docker compose up -d --build
 | `worker` | – | Celery worker that runs the scans |
 | `db` | internal only | PostgreSQL |
 | `redis` | internal only | Task queue between the API and the worker |
+| `beat` | – | Schedules periodic tasks: the daily GDPR clean-up of scan results older than `RETENTION_DAYS` |
 
 The dashboard's nginx forwards `/api` to the `api` service, so the dashboard and the API share one address. For development with live reload, see [`dashboard/README.md`](dashboard/README.md).
 
