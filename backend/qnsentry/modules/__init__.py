@@ -2,13 +2,14 @@
 
 from qnsentry.modules.base import Module
 from qnsentry.modules.breach import BreachModule
+from qnsentry.modules.metadata import MetadataModule
 from qnsentry.modules.phishing import PhishingModule
 from qnsentry.modules.placeholder import PlaceholderModule
 
 # Each placeholder is replaced by the real module in its own issue
 MODULES: list[Module] = [
     PlaceholderModule("attack_surface"),
-    PlaceholderModule("metadata"),
+    MetadataModule(),
     PhishingModule(),
     BreachModule(),
 ]

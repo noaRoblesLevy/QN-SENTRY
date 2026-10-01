@@ -30,7 +30,7 @@ def test_untrustworthy_resolver_fails_instead_of_reporting_zero_lookalikes(monke
     monkeypatch.setattr(dns.resolver.Resolver, "resolve", deny_everything)
 
     with pytest.raises(RuntimeError, match="does not resolve names that must exist"):
-        check_resolver("be", nameservers=["192.0.2.53"])
+        check_resolver(nameservers=["192.0.2.53"])
 
 
 def test_generates_alternative_top_level_domains():
@@ -74,6 +74,22 @@ def test_shared_dns_provider_is_noted_but_keeps_the_severity():
     assert finding.severity == Severity.HIGH
     assert finding.details["shared_with_client"] == {"ns": ["ns01.one.com", "ns02.one.com"]}
     assert "defensive registration" in finding.description
+
+
+def test_resolver_check_uses_a_name_every_resolver_can_answer(monkeypatch):
+    # Docker's built-in DNS does not answer NS queries for a bare TLD ("be."), so the
+    # check must not depend on one: it asks for the A record of a root server
+    asked = []
+
+    def answer(self, name, rdtype):
+        asked.append((name, rdtype))
+        return ["198.41.0.4"]
+
+    monkeypatch.setattr(dns.resolver.Resolver, "resolve", answer)
+
+    check_resolver(nameservers=["192.0.2.53"])
+
+    assert asked == [("a.root-servers.net", "A")]
 
 
 def test_rejects_an_invalid_domain():
