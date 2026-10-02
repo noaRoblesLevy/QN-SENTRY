@@ -37,17 +37,25 @@ class PhishingModule(Module):
         else:
             certificates = self._check(
                 "lookalike certificates",
-                lambda: find_lookalike_certificates(lookalikes, api_key=configured_api_key()),
+                lambda: find_lookalike_certificates(lookalikes, api_key=configured_api_key(), warn=context.warn),
                 domain,
                 errors,
             )
         email = self._check(
-            "email security", lambda: check_email_security(domain, nameservers=self.nameservers), domain, errors
+            "email security",
+            lambda: check_email_security(domain, nameservers=self.nameservers, warn=context.warn),
+            domain,
+            errors,
         )
 
         if len(errors) == 3:
             # Nothing useful to return: let the worker mark the module as failed
             raise RuntimeError("; ".join(errors))
+        # A check that failed while others worked: the module completes, with a warning per
+        # check, so a skipped check never looks like a clean result (data contract 10.3.1)
+        for error in errors:
+            label, _, reason = error.partition(": ")
+            context.warn(f"The {label} check did not run: {reason}")
         return lookalikes + certificates + email
 
     @staticmethod

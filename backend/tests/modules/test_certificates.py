@@ -1,5 +1,6 @@
 """Tests for lookalike certificates from Certificate Transparency (#10). No network needed."""
 
+import http.client
 from datetime import UTC, datetime
 
 import pytest
@@ -251,3 +252,46 @@ def test_no_lookalikes_means_no_requests(monkeypatch):
     # Other finding types (e.g. email security) are not looked up either
     other = Finding(module="phishing", type="email_security", title="", description="", severity=Severity.HIGH, asset="x")
     assert find_lookalike_certificates([other], now=NOW) == []
+
+
+# Reviewer's probe on #49: an incomplete answer is an http.client.HTTPException, not an OSError
+
+
+@pytest.mark.parametrize(
+    "error",
+    [http.client.IncompleteRead(b"[{"), ConnectionResetError("reset"), ValueError("HTML instead of JSON")],
+    ids=["incomplete answer", "connection reset", "not JSON"],
+)
+def test_an_error_for_one_lookalike_skips_only_that_lookalike(monkeypatch, error):
+    def certspotter(domain, **kwargs):
+        if domain == "b.be":
+            raise error
+        return parse_certspotter(CERTSPOTTER)
+
+    monkeypatch.setattr(certificates, "from_certspotter", certspotter)
+    monkeypatch.setattr(certificates, "from_crtsh", lambda domain: [])
+    warnings = []
+
+    found = find_lookalike_certificates(
+        [lookalike("a.be"), lookalike("b.be"), lookalike("c.be")], now=NOW, warn=warnings.append
+    )
+
+    assert [f.asset for f in found] == ["a.be", "c.be"]
+    assert warnings == [
+        "1 of 3 lookalike domain(s) could not be checked for certificates, so certificates for them may have been missed"
+    ]
+
+
+def test_lookalikes_above_the_limit_are_a_warning(monkeypatch):
+    use_services(monkeypatch, certspotter=[])
+    warnings = []
+
+    find_lookalike_certificates(
+        [lookalike(f"l{i}.be") for i in range(certificates.MAX_LOOKALIKES + 5)], now=NOW, warn=warnings.append
+    )
+
+    assert warnings == [
+        f"Only the first {certificates.MAX_LOOKALIKES} of {certificates.MAX_LOOKALIKES + 5} lookalike domains were "
+        "checked for certificates (those that can receive email first)"
+    ]
+

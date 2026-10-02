@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(e))
 
     findings = []
+    warnings: list[str] = []
     started = time.monotonic()
     try:
         if args.check in ("all", "lookalikes", "certificates"):
@@ -57,14 +58,16 @@ def main(argv: list[str] | None = None) -> int:
             findings += lookalikes
             if args.check in ("all", "certificates"):
                 print(f"Searching Certificate Transparency for {len(lookalikes)} lookalike(s) ...", file=sys.stderr)
-                findings += find_lookalike_certificates(lookalikes, api_key=configured_api_key())
+                findings += find_lookalike_certificates(lookalikes, api_key=configured_api_key(), warn=warnings.append)
         if args.check in ("all", "email"):
             print(f"Checking SPF, DMARC and DKIM of {args.domain} ...", file=sys.stderr)
-            findings += check_email_security(args.domain, nameservers=nameservers)
+            findings += check_email_security(args.domain, nameservers=nameservers, warn=warnings.append)
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     elapsed = time.monotonic() - started
+    for warning in warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
 
     if args.json:
         print(json.dumps([asdict(f) for f in findings], indent=2, ensure_ascii=False))

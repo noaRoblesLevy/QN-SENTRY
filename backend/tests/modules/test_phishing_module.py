@@ -14,7 +14,7 @@ def test_phishing_module_is_registered_in_the_worker_order():
 
 
 def fake_check(name, calls, result=None, error=None):
-    def check(domain, *, nameservers=None):
+    def check(domain, *, nameservers=None, warn=None):
         calls.append((name, domain, nameservers))
         if error:
             raise error
@@ -62,7 +62,23 @@ def test_a_failing_check_keeps_the_findings_of_the_others(monkeypatch):
     )
     monkeypatch.setattr("qnsentry.modules.phishing.check_email_security", fake_check("email", calls))
 
-    assert PhishingModule().run(ScanContext(domain="badsecurityinc.be")) == [LOOKALIKE]
+    context = ScanContext(domain="badsecurityinc.be")
+
+    assert PhishingModule().run(context) == [LOOKALIKE]
+    # The skipped check is a warning, so it never looks like a clean result (#32)
+    assert context.warnings == ["The lookalike certificates check did not run: Cert Spotter and crt.sh both failed"]
+
+
+def test_no_warnings_when_every_check_ran(monkeypatch):
+    calls = []
+    monkeypatch.setattr("qnsentry.modules.phishing.find_lookalike_domains", fake_check("lookalikes", calls, [LOOKALIKE]))
+    monkeypatch.setattr("qnsentry.modules.phishing.find_lookalike_certificates", fake_certificates(calls))
+    monkeypatch.setattr("qnsentry.modules.phishing.check_email_security", fake_check("email", calls))
+    context = ScanContext(domain="badsecurityinc.be")
+
+    PhishingModule().run(context)
+
+    assert context.warnings == []
 
 
 def test_certificate_check_is_skipped_when_the_lookalike_check_fails(monkeypatch):
@@ -73,8 +89,14 @@ def test_certificate_check_is_skipped_when_the_lookalike_check_fails(monkeypatch
     monkeypatch.setattr("qnsentry.modules.phishing.find_lookalike_certificates", fake_certificates(calls))
     monkeypatch.setattr("qnsentry.modules.phishing.check_email_security", fake_check("email", calls, [LOOKALIKE]))
 
-    assert PhishingModule().run(ScanContext(domain="badsecurityinc.be")) == [LOOKALIKE]
+    context = ScanContext(domain="badsecurityinc.be")
+
+    assert PhishingModule().run(context) == [LOOKALIKE]
     assert ("certificates", []) not in calls
+    assert context.warnings == [
+        "The lookalike domains check did not run: no DNS",
+        "The lookalike certificates check did not run: skipped because the lookalike check failed",
+    ]
 
 
 def test_module_fails_when_no_check_could_run(monkeypatch):

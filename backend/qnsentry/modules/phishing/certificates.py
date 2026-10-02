@@ -34,10 +34,12 @@ Only when no lookalike could be checked does the check fail. The phishing module
 still returns the findings of its other checks (data contract 10.3.1).
 """
 
+import http.client
 import json
 import logging
 import os
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -109,11 +111,20 @@ def configured_api_key() -> str | None:
 
 
 def find_lookalike_certificates(
-    lookalikes: list[Finding], *, now: datetime | None = None, api_key: str | None = None
+    lookalikes: list[Finding],
+    *,
+    now: datetime | None = None,
+    api_key: str | None = None,
+    warn: Callable[[str], None] = lambda message: None,
 ) -> list[Finding]:
-    """One finding per lookalike domain that has a valid certificate in the CT logs."""
+    """One finding per lookalike domain that has a valid certificate in the CT logs.
+
+    Lookalikes that could not be checked, and the ones above MAX_LOOKALIKES, are reported
+    to `warn` as a count (data contract 10.3.1).
+    """
     now = now or datetime.now(UTC)
-    domains = [f for f in lookalikes if f.type == "lookalike_domain"][:MAX_LOOKALIKES]
+    registered = [f for f in lookalikes if f.type == "lookalike_domain"]
+    domains = registered[:MAX_LOOKALIKES]
     breaker = CircuitBreaker()
     findings: list[Finding] = []
     failed: list[str] = []
@@ -129,6 +140,16 @@ def find_lookalike_certificates(
             findings.append(to_finding(lookalike, valid))
     if domains and len(failed) == len(domains):
         raise RuntimeError(f"Certificate Transparency could not be searched reliably: {failed[0]}")
+    if failed:
+        warn(
+            f"{len(failed)} of {len(domains)} lookalike domain(s) could not be checked for certificates, "
+            "so certificates for them may have been missed"
+        )
+    if len(registered) > MAX_LOOKALIKES:
+        warn(
+            f"Only the first {MAX_LOOKALIKES} of {len(registered)} lookalike domains were checked for "
+            "certificates (those that can receive email first)"
+        )
     return findings
 
 
@@ -142,7 +163,9 @@ def certificates_for(
     if breaker.available(CERTSPOTTER):
         try:
             certificates = from_certspotter(domain, api_key=api_key)
-        except (OSError, ValueError, KeyError) as error:  # network, HTTP, JSON or format errors
+        # Network and HTTP errors, also while reading the answer (IncompleteRead is an
+        # HTTPException, not an OSError), and JSON or format errors
+        except (OSError, http.client.HTTPException, ValueError, KeyError) as error:
             breaker.failed(CERTSPOTTER)
             errors.append(f"{CERTSPOTTER}: {error}")
         else:
@@ -156,7 +179,7 @@ def certificates_for(
         raise CertificateLookupFailed("; ".join(errors))
     try:
         certificates = from_crtsh(domain)
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, http.client.HTTPException, ValueError, KeyError) as error:
         breaker.failed(CRTSH)
         errors.append(f"{CRTSH}: {error}")
         raise CertificateLookupFailed("; ".join(errors)) from error
