@@ -31,7 +31,7 @@
 | Challenges | Problems encountered, choices made and their justification | 2 min |
 | Conclusion | Results (detection rate on the planted findings), self-reflection, future work | 2 min |
 
-Fallbacks: pre-computed scan results in the dashboard, a backup demo video and screenshots.
+Fallbacks: pre-computed scan results in the dashboard, a backup demo video and screenshots. The full script, preparation checklist and fallbacks are in the [demo scenario](11-demo-scenario.md).
 
 ## 9.4 Process Deliverables
 
