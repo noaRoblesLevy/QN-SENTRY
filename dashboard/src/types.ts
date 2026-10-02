@@ -32,6 +32,9 @@ export type ModuleRun = {
   status: ModuleStatus
   finding_count: number
   error: string | null
+  // Problems that did not stop the module, one readable sentence each; [] when there are none
+  // (data contract, open question 4 of #32). The status stays "completed".
+  warnings: string[]
 }
 
 export type Scan = {

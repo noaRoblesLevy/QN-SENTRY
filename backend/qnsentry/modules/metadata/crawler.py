@@ -3,6 +3,8 @@
 import json
 import shutil
 import subprocess
+import time
+from collections.abc import Callable
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urlparse
 
@@ -12,14 +14,21 @@ DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
 MAX_DEPTH = 3
 CRAWL_SECONDS = 120
 REQUESTS_PER_SECOND = 10
+# Lines katana marks as "error" that are not a failed request: the link was simply
+# deeper than MAX_DEPTH, which is the crawl's normal limit
+NOT_FAILURES = {"max depth reached"}
 
 
 def start_urls(domain: str) -> list[str]:
     return [f"https://{domain}", f"https://www.{domain}"]
 
 
-def crawl(urls: list[str]) -> list[str]:
-    """All URLs katana finds from `urls`, staying on the exact host of each start URL."""
+def crawl(urls: list[str], warn: Callable[[str], None] = lambda message: None) -> list[str]:
+    """All URLs katana finds from `urls`, staying on the exact host of each start URL.
+
+    Raises when nothing could be reached. When only a part was crawled (a start URL
+    that does not answer, failed requests, the time limit), `warn` is told.
+    """
     if shutil.which("katana") is None:
         raise RuntimeError("katana is not installed in the worker image")
 
@@ -39,6 +48,7 @@ def crawl(urls: list[str]) -> list[str]:
         "-silent",
         "-no-color",
     ]
+    started = time.monotonic()
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=CRAWL_SECONDS + 60)
     except subprocess.TimeoutExpired as error:
@@ -52,6 +62,21 @@ def crawl(urls: list[str]) -> list[str]:
         stderr = result.stderr.strip().splitlines()
         reason = errors[0] if errors else stderr[-1] if stderr else f"exit code {result.returncode}"
         raise RuntimeError(f"The website {', '.join(urls)} could not be crawled: {reason}")
+
+    # Only katana's own error for a start URL means it could not be reached. A host missing
+    # from the results is no proof: when example.be and www.example.be serve the same site,
+    # katana reports each page under one of the two hosts only.
+    unreached = [url for url in urls if any(_is_error_for(url, error) for error in errors)]
+    for url in unreached:
+        warn(f"{url} could not be reached, so it was not crawled")
+    failed = [error for error in errors if not any(_is_error_for(url, error) for url in unreached)]
+    if failed:
+        warn(f"{len(failed)} request(s) failed during the crawl, so some pages may have been missed")
+    if time.monotonic() - started >= CRAWL_SECONDS:
+        warn(
+            f"The crawl stopped at its limit of {CRAWL_SECONDS} s, "
+            "so documents deeper in the website may have been missed"
+        )
     return found
 
 
@@ -76,11 +101,19 @@ def parse_katana_output(output: str) -> tuple[list[str], list[str]]:
         except (ValueError, AttributeError):
             endpoint = line if line.startswith(("http://", "https://")) else None
             error = None
+        if error in NOT_FAILURES:
+            continue
         if error:
             errors.append(f"{endpoint}: {error}" if endpoint else str(error))
         elif endpoint and endpoint not in found:
             found.append(endpoint)
     return found, errors
+
+
+def _is_error_for(url: str, error: str) -> bool:
+    """True when `error` (as returned by parse_katana_output) is about `url` itself."""
+    endpoint = error.split(": ", 1)[0]
+    return endpoint.rstrip("/") == url.rstrip("/")
 
 
 def document_urls(urls: list[str], allowed_hosts: set[str]) -> list[str]:
