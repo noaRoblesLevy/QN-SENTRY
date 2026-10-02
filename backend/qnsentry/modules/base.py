@@ -28,6 +28,17 @@ class ScanContext:
     person_names: list[str] = field(default_factory=list)
     emails: list[str] = field(default_factory=list)
     email_convention: str | None = None
+    # Warnings of the module that is running; the worker empties the list before each module
+    # and stores it with that module's run. Not shared between modules, not stored in the scan.
+    warnings: list[str] = field(default_factory=list)
+
+    def warn(self, message: str) -> None:
+        """Report that a part of the module failed while it still has results (contract 10.3.1).
+
+        One readable sentence per kind of problem, with a count instead of one warning per
+        item, and without personal data: warnings are shown in the dashboard and the report.
+        """
+        self.warnings.append(message)
 
 
 class Module(ABC):
@@ -35,7 +46,8 @@ class Module(ABC):
 
     A module reads the scan context, may add information to it for later
     modules, and returns its findings. It never writes to the database:
-    the worker stores the findings.
+    the worker stores the findings. When a part of it fails but it still has
+    results, it calls context.warn() instead of raising.
     """
 
     name: str
