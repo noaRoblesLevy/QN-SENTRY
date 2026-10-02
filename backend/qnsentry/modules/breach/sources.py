@@ -11,6 +11,7 @@ Data minimisation (docs/project/05-legal-ethical.md): a source only returns the 
 name, date and the *kinds* of data exposed, never the leaked data itself.
 """
 
+import http.client
 import json
 import os
 import time
@@ -176,13 +177,20 @@ class HibpSource(BreachSource):
                 if e.code == 400:
                     raise LookupUnavailable("Have I Been Pwned answered 400 (not a valid email address)") from e
                 raise RuntimeError(f"Have I Been Pwned answered {e.code} {_HIBP_ERRORS.get(e.code, e.reason)}") from e
-            except (urllib.error.URLError, TimeoutError) as e:
+            # After HTTPError (also an OSError): network errors, also while reading the answer
+            # (connection reset, incomplete answer), and an answer that is not the expected
+            # JSON (e.g. a proxy's maintenance page with status 200)
+            except (OSError, http.client.HTTPException, ValueError) as e:
                 if transient < self.transient_retries:
                     transient += 1
                     self.sleep(self.transient_wait)
                     continue
-                raise LookupUnavailable(f"Have I Been Pwned could not be reached: {e}") from e
-            return [_hibp_breach(entry) for entry in data]
+                raise LookupUnavailable(f"Have I Been Pwned could not be reached or answered unexpectedly: {e}") from e
+            try:
+                return [_hibp_breach(entry) for entry in data]
+            except (KeyError, TypeError, AttributeError) as e:
+                # Valid JSON, but not a list of breaches
+                raise LookupUnavailable(f"Have I Been Pwned answered in an unexpected format: {e!r}") from e
 
     def _wait_for_rate_limit(self) -> None:
         if self._last_request is not None:

@@ -64,6 +64,13 @@ class BreachModule(Module):
                 findings.append(finding)
         if emails and len(skipped) == len(emails):
             raise RuntimeError(f"No address could be checked: {skipped[0]}")
+        if skipped:
+            # Without a warning, a skipped address would look the same as a clean one (#32).
+            # A count, not the addresses: warnings are shown in the dashboard and the report.
+            context.warn(
+                f"{len(skipped)} of {len(emails)} email address(es) could not be checked against "
+                "data breaches, so breaches of those addresses may have been missed"
+            )
         return findings
 
 

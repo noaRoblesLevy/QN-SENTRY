@@ -1,5 +1,6 @@
 """Tests for the Breach module and its local dataset source (#11). No network needed."""
 
+import http.client
 import io
 import json
 import urllib.error
@@ -137,7 +138,22 @@ class FakeHibp:
         if isinstance(answer, int):
             headers = {"Retry-After": "3"} if answer == 429 else {}
             raise urllib.error.HTTPError(request.full_url, answer, "error", headers, io.BytesIO())
+        if isinstance(answer, FailingRead):
+            return answer
+        if isinstance(answer, bytes):
+            return io.BytesIO(answer)  # a raw body, e.g. an HTML page
         return io.BytesIO(json.dumps(answer).encode())
+
+
+class FailingRead(io.BytesIO):
+    """A 200 answer that fails while it is being read."""
+
+    def __init__(self, error):
+        super().__init__()
+        self.error = error
+
+    def read(self, *args):
+        raise self.error
 
 
 class FakeClock:
@@ -226,6 +242,43 @@ def test_module_skips_an_address_that_cannot_be_checked_and_keeps_the_others():
     findings = BreachModule(lambda: source).run(ScanContext(domain="", emails=emails))
 
     assert [f.asset for f in findings] == ["a@badsecurityinc.be", "c@badsecurityinc.be"]
+
+
+# Reviewer's probe on #56: errors while reading the answer, for the middle of three addresses
+
+
+@pytest.mark.parametrize(
+    ("broken", "attempts"),
+    [
+        (lambda: FailingRead(ConnectionResetError("connection reset by peer")), 2),
+        (lambda: FailingRead(http.client.IncompleteRead(b"[{")), 2),
+        (lambda: b"<html><body>Down for maintenance</body></html>", 2),
+        # Valid JSON in the wrong shape will not fix itself: skipped without a retry
+        (lambda: {"not": "a list of breaches"}, 1),
+    ],
+    ids=["connection reset", "incomplete answer", "HTML instead of JSON", "unexpected JSON"],
+)
+def test_an_error_while_reading_skips_only_that_address(broken, attempts):
+    source, fake, _ = hibp([HIBP_SHOP], *[broken() for _ in range(attempts)], [HIBP_SHOP], min_interval=0)
+    context = ScanContext(domain="", emails=["a@badsecurityinc.be", "b@badsecurityinc.be", "c@badsecurityinc.be"])
+
+    findings = BreachModule(lambda: source).run(context)
+
+    assert [f.asset for f in findings] == ["a@badsecurityinc.be", "c@badsecurityinc.be"]
+    assert len(fake.requests) == 2 + attempts
+    assert context.warnings == [
+        "1 of 3 email address(es) could not be checked against data breaches, so breaches of "
+        "those addresses may have been missed"
+    ]
+
+
+def test_no_warning_when_every_address_was_checked():
+    source, _, _ = hibp([HIBP_SHOP], 404, min_interval=0)
+    context = ScanContext(domain="", emails=["a@badsecurityinc.be", "b@badsecurityinc.be"])
+
+    BreachModule(lambda: source).run(context)
+
+    assert context.warnings == []
 
 
 def test_module_fails_when_no_address_could_be_checked():
