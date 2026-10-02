@@ -29,6 +29,9 @@ export const SCAN_STATUS_LABELS: Record<ScanStatus, string> = {
   failed: 'Failed',
 }
 
+// A completed module with warnings keeps the status "completed" (#32); only the label differs
+export const COMPLETED_WITH_WARNINGS = 'Completed with warnings'
+
 export const MODULE_STATUS_LABELS: Record<ModuleStatus, string> = {
   pending: 'Waiting',
   running: 'Running',
