@@ -93,7 +93,15 @@ def evaluate(expected: dict, findings: list[dict]) -> dict[str, ModuleResult]:
     results = {module: ModuleResult() for module in MODULES}
     findings = [f for f in findings if f.get("type") not in IGNORED_TYPES]
     rules = expected["expected"]
-    pairs = assign(rules, findings)
+    # Entries that count are paired first; pending entries only get the findings that are
+    # left. Otherwise a pending entry could take the finding of an entry that counts, and
+    # the rate would depend on the order of the JSON file.
+    counted = [i for i, rule in enumerate(rules) if not rule.get("pending")]
+    pending = [i for i, rule in enumerate(rules) if rule.get("pending")]
+    pairs = {counted[r]: f for r, f in assign([rules[i] for i in counted], findings).items()}
+    left = [f for f in range(len(findings)) if f not in pairs.values()]
+    pending_pairs = assign([rules[i] for i in pending], [findings[f] for f in left])
+    pairs.update({pending[r]: left[f] for r, f in pending_pairs.items()})
     used = set(pairs.values())
 
     for index, rule in enumerate(rules):
@@ -221,8 +229,11 @@ def git_commit(expected_file: Path) -> str:
     """
     folder = expected_file.resolve().parent
     try:
+        # The commit that last changed the ground truth itself, not the HEAD of the checkout:
+        # an unrelated commit must not make the same ground truth look different
         head = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10, cwd=folder
+            ["git", "log", "-1", "--format=%h", "--", expected_file.name],
+            capture_output=True, text=True, timeout=10, cwd=folder,
         )
         changed = subprocess.run(
             ["git", "status", "--porcelain", "--", expected_file.name], capture_output=True, text=True, timeout=10, cwd=folder

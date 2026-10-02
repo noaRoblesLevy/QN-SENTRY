@@ -2,6 +2,8 @@
 
 import json
 import sys
+
+import pytest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -103,6 +105,19 @@ def test_reporting_everything_does_not_give_a_perfect_score():
 
     assert total["detection_rate"] == 1.0
     assert total["precision"] == round(3 / 53, 3)
+
+
+@pytest.mark.parametrize("pending_first", [True, False])
+def test_a_pending_entry_never_takes_the_finding_of_a_counted_one(pending_first):
+    # Reviewer's probe on #55: same pattern, one pending, one finding; the order must not matter
+    counted = {"id": "counted", "module": "m", "type": "t", "asset": "dev.example.be", "severity": "medium", "planted": "x"}
+    pending = {**counted, "id": "later", "pending": "#6"}
+    rules = [pending, counted] if pending_first else [counted, pending]
+
+    total = summary(evaluate({"expected": rules}, [finding("m", "t", "dev.example.be", "medium")]))
+
+    assert (total["found"], total["expected"]) == (1, 1)
+    assert total["modules"]["m"]["pending"][0]["found_anyway"] is False
 
 
 def test_pending_entry_found_anyway_is_reported_but_not_counted():
