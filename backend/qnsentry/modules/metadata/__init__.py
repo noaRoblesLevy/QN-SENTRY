@@ -35,12 +35,12 @@ class MetadataModule(Module):
 def analyse_site(urls: list[str], context: ScanContext) -> list[Finding]:
     """Crawl `urls`, analyse the documents found there and add the author names to `context`."""
     allowed_hosts = {urlparse(url).hostname for url in urls}
-    documents = document_urls(crawl(urls), allowed_hosts)
+    documents = document_urls(crawl(urls, warn=context.warn), allowed_hosts)
 
     findings: list[Finding] = []
     # Documents are only kept while they are analysed (GDPR: nothing is stored)
     with tempfile.TemporaryDirectory(prefix="qnsentry-documents-") as folder:
-        files = download_documents(documents, Path(folder), allowed_hosts)
+        files = download_documents(documents, Path(folder), allowed_hosts, warn=context.warn)
         tags_per_file = read_metadata(list(files.values()))
 
         for url, path in files.items():
