@@ -157,13 +157,38 @@ def test_a_redirect_to_another_host_is_never_crawled(monkeypatch):
     assert f"{SITE}/a.pdf" in crawler.document_urls(found, {"www.badsecurityinc.be"})
 
 
-def test_a_document_behind_a_redirect_is_left_to_the_downloader(monkeypatch):
+def test_a_document_that_redirects_to_another_document_is_downloaded_once(monkeypatch):
+    # Downloading /old.pdf follows its redirect to /new.pdf; adding /new.pdf too would
+    # download the same file twice and give a duplicate finding
     runs = fake_katana(monkeypatch, {SITE: [entry(SITE), entry(f"{SITE}/old.pdf", 302, "/new.pdf")]})
 
     found = crawler.crawl([SITE])
 
     assert runs == [SITE]
-    assert f"{SITE}/old.pdf" in found
+    assert crawler.document_urls(found, {"www.badsecurityinc.be"}) == [f"{SITE}/old.pdf"]
+
+
+@pytest.mark.parametrize(
+    ("link", "document"),
+    [("/download?id=3", "/files/report.pdf"), ("/docs", "/docs/manual.pdf")],
+    ids=["download script", "folder"],
+)
+def test_a_document_behind_a_redirect_from_a_page_is_found(monkeypatch, link, document):
+    # Reviewer's cases in #71: a link that is not a document itself redirects to one on the site
+    runs = fake_katana(monkeypatch, {SITE: [entry(SITE), entry(f"{SITE}{link}", 302, document)]})
+
+    found = crawler.crawl([SITE])
+
+    assert runs == [SITE]  # a document is downloaded, not crawled
+    assert crawler.document_urls(found, {"www.badsecurityinc.be"}) == [f"{SITE}{document}"]
+
+
+def test_a_document_behind_a_redirect_to_another_host_is_not_added(monkeypatch):
+    fake_katana(monkeypatch, {SITE: [entry(SITE), entry(f"{SITE}/away", 302, "https://cdn.example.net/x.pdf")]})
+
+    found = crawler.crawl([SITE])
+
+    assert crawler.document_urls(found, {"www.badsecurityinc.be"}) == []
 
 
 def test_redirect_rounds_are_limited(monkeypatch):
@@ -187,7 +212,7 @@ def test_a_redirect_loop_is_crawled_once(monkeypatch):
     assert runs == [SITE, f"{SITE}/nl/"]
 
 
-def test_redirect_targets_are_made_absolute():
+def test_redirects_are_made_absolute():
     output = "\n".join(
         [
             entry(SITE),
@@ -198,7 +223,11 @@ def test_redirect_targets_are_made_absolute():
         ]
     )
 
-    assert crawler.redirect_targets(output) == [f"{SITE}/docs/", f"{SITE}/c", f"{SITE}/y"]
+    assert crawler.redirects(output) == [
+        (f"{SITE}/docs", f"{SITE}/docs/"),
+        (f"{SITE}/a/b", f"{SITE}/c"),
+        (f"{SITE}/x", f"{SITE}/y"),
+    ]
 
 
 def test_the_same_document_on_both_hosts_is_downloaded_once():

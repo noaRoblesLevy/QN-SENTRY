@@ -16,6 +16,8 @@ CRAWL_SECONDS = 120
 REQUESTS_PER_SECOND = 10
 # Extra crawl rounds for redirects within the start hosts (e.g. / to /nl/ to /nl/home)
 MAX_REDIRECT_ROUNDS = 2
+# Seconds katana needs to start, on top of CRAWL_SECONDS of crawling
+STARTUP_MARGIN = 5
 # Lines katana marks as "error" that are not a failed request: the link was simply
 # deeper than MAX_DEPTH, which is the crawl's normal limit
 NOT_FAILURES = {"max depth reached"}
@@ -61,14 +63,28 @@ def crawl(urls: list[str], warn: Callable[[str], None] = lambda message: None) -
         round_found, round_errors = parse_katana_output(result.stdout)
         found += [url for url in round_found if url not in found]
         errors += round_errors
-        pending = [
-            target
-            for target in dict.fromkeys(redirect_targets(result.stdout))
+        same_host = [
+            (source, target)
+            for source, target in redirects(result.stdout)
             if urlparse(target).hostname in allowed_hosts
-            and target not in crawled
-            and target not in found
-            and not is_document(target)  # documents are downloaded, which follows same-host redirects
         ]
+        # A document behind a redirect from a page or script (/download?id=3 -> /files/report.pdf)
+        # is found through its target. When the source is a document itself (/old.pdf -> /new.pdf),
+        # the source is already found and downloading it follows the redirect, so adding the target
+        # would download the same file twice.
+        found += [
+            target
+            for source, target in same_host
+            if is_document(target) and not is_document(source) and target not in found
+        ]
+        # Pages behind a redirect (/ -> /nl/) are crawled in the next round
+        pending = list(
+            dict.fromkeys(
+                target
+                for _, target in same_host
+                if not is_document(target) and target not in crawled and target not in found
+            )
+        )
 
     if not found:
         # Not even the start page answered (site offline, DNS or TLS error). Reporting
@@ -87,7 +103,9 @@ def crawl(urls: list[str], warn: Callable[[str], None] = lambda message: None) -
     failed = [error for error in errors if not any(_is_error_for(url, error) for url in unreached)]
     if failed:
         warn(f"{len(failed)} request(s) failed during the crawl, so some pages may have been missed")
-    if time.monotonic() - started >= CRAWL_SECONDS:
+    # The margin covers katana's start-up, so a crawl that ends on its own just under the
+    # limit is not reported as stopped by it
+    if time.monotonic() - started >= CRAWL_SECONDS + STARTUP_MARGIN:
         warn(
             f"The crawl stopped at its limit of {CRAWL_SECONDS} s, "
             "so documents deeper in the website may have been missed"
@@ -124,9 +142,9 @@ def _run_katana(urls: list[str], seconds: float) -> subprocess.CompletedProcess:
         raise RuntimeError(f"katana did not finish within {int(seconds) + 60} s") from error
 
 
-def redirect_targets(output: str) -> list[str]:
-    """The absolute targets of the redirects in katana's output, in the order found."""
-    targets = []
+def redirects(output: str) -> list[tuple[str, str]]:
+    """The redirects in katana's output as (source, absolute target), in the order found."""
+    found = []
     for line in output.split("\n"):
         try:
             entry = json.loads(line)
@@ -138,8 +156,8 @@ def redirect_targets(output: str) -> list[str]:
             continue
         location = headers.get("location")
         if 300 <= status < 400 and isinstance(location, str) and location:
-            targets.append(urljoin(endpoint, location))
-    return targets
+            found.append((endpoint, urljoin(endpoint, location)))
+    return found
 
 
 def is_document(url: str) -> bool:
@@ -187,7 +205,9 @@ def document_urls(urls: list[str], allowed_hosts: set[str]) -> list[str]:
 
     example.be and www.example.be usually serve the same site, so the crawl finds every
     document under both hosts. The same path is downloaded only once (the first host found),
-    which avoids a duplicate finding per document and halves the downloads.
+    which avoids a duplicate finding per document and halves the downloads. This assumes both
+    hosts serve the same file at the same path; a site where they differ would lose the
+    document of the second host.
     """
     documents = []
     seen_paths = set()
