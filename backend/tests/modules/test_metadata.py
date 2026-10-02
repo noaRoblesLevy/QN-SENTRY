@@ -16,6 +16,13 @@ from qnsentry.modules.metadata.crawler import document_urls, parse_katana_output
 from qnsentry.modules.metadata.documents import safe_name
 from qnsentry.modules.metadata.extract import interpret, read_metadata
 
+
+@pytest.fixture(autouse=True)
+def no_page_requests(monkeypatch):
+    """These tests are about documents: email addresses on pages are tested in test_metadata_emails.py."""
+    monkeypatch.setattr(metadata, "collect_emails", lambda *args, **kwargs: {})
+
+
 SITE = "https://www.badsecurityinc.be"
 HOSTS = {"badsecurityinc.be", "www.badsecurityinc.be"}
 
