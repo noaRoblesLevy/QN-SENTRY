@@ -40,8 +40,8 @@ Both scans belong to the same client. The client BadSecurityInc is therefore **n
 
 **The morning of the demo**
 
-- [ ] Run the scan that is shown during the walkthrough and check it is `completed`, not `partial`
-- [ ] Check the network of the room: the lookalike check refuses to run on a resolver that denies existing names (filtering networks). If the room network filters DNS, use a phone hotspot
+- [ ] Run the scan that is shown during the walkthrough and check it is `completed`, not `partial`, and that no module shows "Completed with warnings"
+- [ ] Check the network of the room: run one full scan on it and check that it finishes in about half a minute. A resolver that denies existing names (filtering networks) makes the lookalike check refuse to run; a resolver that is slow for names that do not exist makes it take more than 15 minutes. In both cases, use a phone hotspot
 - [ ] Do **not** delete the BadSecurityInc client: it holds the morning scan. Check that no scan of `badsecurityinc.be` is still running, otherwise the live scan at 0:30 gives `409`
 - [ ] Dashboard open in a browser with a large font, the PDF viewer ready, notifications off
 
@@ -87,7 +87,7 @@ This first version assumes the whole platform is finished. What the script depen
 | Attack Surface (4:30) | #4, #5, #6 and the test VM #2 |
 | "Add client" with an ownership check | #48 (if the check is built, the TXT record of `badsecurityinc.be` must be set before the demo) |
 | Detection rate on the conclusion slide, and the ground truth in 11.4 | #55 (`testenv/detection-rate`) |
+| The PDF report while Attack surface is a placeholder | #51 shows it as "not available in this version"; without #4 to #6 by the demo, say so when the report is shown |
 | Release tag `v1.0` for the demo laptop | To create on the final `main`, after the feature freeze (25/10) |
-| Language of the presentation | To ask Jan Celis whether it may be in English, like the code and documentation |
 
 When all of these are merged: rehearse the script with a timer, adjust the timings in 11.2, and replace this section with the rehearsal notes.
