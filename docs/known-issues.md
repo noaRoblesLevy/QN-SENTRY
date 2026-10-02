@@ -50,6 +50,14 @@ The reason is shown under the module on the scan page. The other modules still r
 | `Certificate Transparency could not be searched reliably` | Cert Spotter and crt.sh both failed or were rate-limited | Scan again later, or set `CERTSPOTTER_API_KEY` |
 | `katana is not installed in the worker image` / `exiftool ...` | The worker image is outdated | `docker compose up -d --build` |
 
+### A scan takes much longer than half a minute
+
+A scan of `badsecurityinc.be` normally takes about half a minute. When the Phishing domains module takes many minutes, the DNS resolver is slow for names that **do not exist**: instead of answering "does not exist" at once, it lets each question time out (5 seconds). The resolver check passes, because existing names do resolve, but the lookalike check asks about hundreds of names that do not exist. Seen on a network where Docker's DNS (`127.0.0.11`) took 5 s per such name while `1.1.1.1` answered in 0.2 s, which turned 5 seconds into more than 15 minutes. Run the scan on another network, e.g. a phone hotspot.
+
+### Document metadata fails with "katana did not finish"
+
+katana checks GitHub for a newer version every time it starts, and when that check hangs, the crawl hangs with it, so the module fails after a few minutes although the website is fine. It happens now and then; the fix is #76. Scan again; if it keeps happening, check the network.
+
 ### DNS-filtering networks
 
 Some networks (company, school or hotel Wi-Fi, some home routers) answer "does not exist" for names they filter. The lookalike check would then report "no lookalikes", which looks like a clean result while nothing was checked. So before every scan it looks up a name that always exists (`a.root-servers.net`), and fails with a clear message if that does not work. Run the scan on another network, e.g. a phone hotspot.

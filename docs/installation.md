@@ -99,6 +99,9 @@ All settings are environment variables in `.env`. The `api`, `worker`, `beat` an
 | `RETENTION_DAYS` | `90` | Scan results older than this are deleted every night at 03:00 UTC and when the worker starts (GDPR storage limitation; at least 1) |
 | `BREACH_SOURCE` | `local` | `local`: the fictitious test dataset; `hibp`: Have I Been Pwned (needs an API key) |
 | `BREACH_DATASET` | the bundled test data | Path to another JSON dataset for the `local` source |
+| `HIBP_API_KEY` | none | Have I Been Pwned API key, required for `BREACH_SOURCE=hibp`; never commit it |
+| `HIBP_MIN_INTERVAL_SECONDS` | `6` | Pause between Have I Been Pwned requests; 6 fits the smallest plan (10 per minute). The pause is per scan and the worker runs two scans at once: use 12 when two HIBP scans can run together |
+| `CERTSPOTTER_API_KEY` | none | Cert Spotter API key for the certificate check of lookalike domains. Without a key the service is for personal or evaluation use only, with a small hourly limit; a real deployment needs one |
 
 Rules for `.env`:
 
@@ -133,15 +136,23 @@ services:
       - "127.0.0.1:18000:8000"
   dashboard:
     ports: !override
-      - "127.0.0.1:18080:80"
+      - "127.0.0.1:18080:8080"
 ```
 
-`!override` replaces the ports instead of adding to them. The dashboard is then on http://localhost:18080 and the API on http://localhost:18000. Do not commit this file: add it to `.git/info/exclude`.
+Inside the container the dashboard listens on 8080 (it runs as a non-root user, which cannot use port 80), so the right-hand side is `8080`. `!override` replaces the ports instead of adding to them. The dashboard is then on http://localhost:18080 and the API on http://localhost:18000. Do not commit this file: add it to `.git/info/exclude`.
+
+**Windows: a port can be reserved without any program using it.** Windows (WinNAT, Hyper-V) reserves ranges of ports for itself. Then the error is different: `ports are not available ... An attempt was made to access a socket in a way forbidden by its access permissions`, although no other project uses the port. Show the reserved ranges with:
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+and choose ports outside them in the same `docker-compose.override.yml`.
 
 ## Security notes
 
 - The API and dashboard are bound to `127.0.0.1`: they are only reachable from the machine itself. There is no login yet (#20), so do not publish these ports on a network.
 - The database and Redis have no published ports; only the containers can reach them.
-- The API and worker containers run as a non-root user.
+- Every container runs as a non-root user.
 
 More problems and their solutions: [Known issues and difficult points](known-issues.md).

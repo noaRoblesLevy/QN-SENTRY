@@ -39,6 +39,7 @@ The **Progress** table shows each module:
 | Waiting | The module has not started yet |
 | Running | The module is working |
 | Completed | The module finished; the number of findings is shown |
+| Completed with warnings | The module finished, but a part of it could not be checked; each warning is shown under it, e.g. "1 of 12 document(s) could not be downloaded". The module's results are real, but findings may be missing for that part |
 | Failed | The module could not run; the reason is shown under it (e.g. the website could not be reached). The other modules still run. |
 
 The page refreshes itself every 5 seconds until the scan has finished. The scan as a whole ends as:
@@ -90,7 +91,7 @@ Every finished scan gets a score from 0 to 100 with a level: **Low** (0 to 24), 
 
 - Each finding adds points by severity, and the score grows more slowly as points add up, so many small findings never outweigh a few serious ones by accident.
 - The score is at least the level of the worst finding: one High finding always gives at least 50 (High), one Critical at least 75 (Very high).
-- A scan that is **Completed with errors** keeps its score, marked with `*` and "Based on 3 of 4 modules": a failed module may have missed findings.
+- A score is marked **incomplete** with `*` and "Based on N of 4 modules without problems" when a module failed (**Completed with errors**), reported warnings, or is not available in this version (Attack surface, until #4 to #6): findings may be missing there. A client's score is incomplete when the latest scan of any of its domains is.
 - A running or failed scan has no score ("No score yet").
 
 How it is calculated: [data contract](project/10-data-contract.md), section 10.7.
