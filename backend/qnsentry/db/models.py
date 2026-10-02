@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -64,7 +65,12 @@ class Client(Base):
         """The client's risk: that of its riskiest domain, from each domain's latest scored scan."""
         latest = [domain.latest_risk for domain in self.domains]
         scored = [risk for risk in latest if risk is not None]
-        return max(scored, key=lambda risk: risk.score) if scored else None
+        if not scored:
+            return None
+        riskiest = max(scored, key=lambda risk: risk.score)
+        # Incomplete when any domain's scan is: a finding missed on another domain could have
+        # raised the client's score (the maximum), whichever domain is the riskiest now
+        return replace(riskiest, complete=all(risk.complete for risk in scored))
 
     @property
     def risk_score(self) -> int | None:
@@ -140,8 +146,9 @@ class Scan(Base):
             return None
         return compute_risk(
             (finding.severity for finding in self.findings),
-            # A partial scan keeps its score, flagged: a failed module may have missed findings
-            complete=self.status == ScanStatus.COMPLETED,
+            # A partial scan, or one with warnings, keeps its score but is flagged: a failed
+            # module or a failed part of one may have missed findings
+            complete=self.status == ScanStatus.COMPLETED and not any(run.warnings for run in self.module_runs),
         )
 
     @property
@@ -179,6 +186,8 @@ class ModuleRun(Base):
     )
     finding_count: Mapped[int] = mapped_column(default=0)
     error: Mapped[str | None] = mapped_column(Text)
+    # Parts of the module that failed while it still had results (contract 10.3.1)
+    warnings: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

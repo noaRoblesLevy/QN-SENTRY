@@ -92,7 +92,8 @@ function ScanView({ scanId }: { scanId: number }) {
           <RiskBadge risk={scan} showScore={false} />
           {scan.risk_complete === false && (
             <div className="stat-note">
-              Based on {scan.modules.filter((m) => m.status === 'completed').length} of {scan.modules.length} modules
+              Based on {scan.modules.filter((m) => m.status === 'completed' && m.warnings.length === 0).length} of{' '}
+              {scan.modules.length} modules without problems
             </div>
           )}
         </div>

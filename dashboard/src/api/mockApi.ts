@@ -2,7 +2,7 @@ import type { Client, Domain, Finding, ModuleName, ModuleRun, Risk, Scan, ScanSt
 import { MODULES } from '../lib/labels'
 import { computeRisk, NO_RISK } from '../lib/risk'
 import { ApiError, type Api } from './api'
-import { failingModule, findingTemplates, mockClients, mockScanHistory, type StoredClient } from './mockData'
+import { failingModule, findingTemplates, moduleWarnings, mockClients, mockScanHistory, type StoredClient } from './mockData'
 
 // An in-memory imitation of the backend. A scan waits in the queue briefly and
 // then runs the four modules one after another, like the Celery worker will.
@@ -77,15 +77,16 @@ function progress(scan: StoredScan, now = Date.now()) {
   const current = elapsed < QUEUE_MS ? -1 : Math.floor((elapsed - QUEUE_MS) / MODULE_MS)
   const finishedAt = (index: number) => new Date(scan.startedAt + QUEUE_MS + (index + 1) * MODULE_MS).toISOString()
 
+  const warnings = moduleWarnings(domain.name)
   const modules: ModuleRun[] = MODULES.map((module, index) => {
     const fails = failing?.module === module
     const count = scan.findings.filter((f) => f.module === module).length
     if (index < current) {
       return fails
-        ? { module, status: 'failed', finding_count: 0, error: failing.error }
-        : { module, status: 'completed', finding_count: count, error: null }
+        ? { module, status: 'failed', finding_count: 0, error: failing.error, warnings: [] }
+        : { module, status: 'completed', finding_count: count, error: null, warnings: warnings[module] ?? [] }
     }
-    return { module, status: index === current ? 'running' : 'pending', finding_count: 0, error: null }
+    return { module, status: index === current ? 'running' : 'pending', finding_count: 0, error: null, warnings: [] }
   })
 
   let status: ScanStatus
@@ -103,11 +104,13 @@ function progress(scan: StoredScan, now = Date.now()) {
 
 /** Risk of a scan (data contract 10.7): only completed and partial scans have a score */
 function scanRisk(scan: StoredScan): Risk {
-  const { status, findings } = progress(scan)
+  const { status, findings, modules } = progress(scan)
+  // Incomplete when a module failed or reported warnings: findings may have been missed
+  const complete = status === 'completed' && modules.every((m) => m.warnings.length === 0)
   return status === 'completed' || status === 'partial'
     ? computeRisk(
         findings.map((f) => f.severity),
-        status === 'completed',
+        complete,
       )
     : NO_RISK
 }
@@ -126,8 +129,10 @@ function withRisk(client: StoredClient): Client {
       .find((risk) => risk.risk_score !== null),
   )
   const scored = latest.filter((risk): risk is Risk => risk !== undefined)
-  const worst = scored.sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))[0]
-  return { ...client, ...(worst ?? NO_RISK) }
+  const worst = [...scored].sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))[0]
+  if (!worst) return { ...client, ...NO_RISK }
+  // Incomplete when any domain's latest scan is (data contract 10.7)
+  return { ...client, ...worst, risk_complete: scored.every((risk) => risk.risk_complete) }
 }
 
 export const mockApi: Api = {

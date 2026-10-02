@@ -65,8 +65,13 @@ def test_level_boundaries(score, level):
 # ---------- Scans and clients ----------
 
 
-def scan(status, *severities, scan_id=1):
-    return models.Scan(id=scan_id, status=status, findings=[models.Finding(severity=s) for s in severities])
+def scan(status, *severities, scan_id=1, warnings=()):
+    return models.Scan(
+        id=scan_id,
+        status=status,
+        findings=[models.Finding(severity=s) for s in severities],
+        module_runs=[models.ModuleRun(module="phishing", warnings=list(warnings))],
+    )
 
 
 @pytest.mark.parametrize("status", [ScanStatus.QUEUED, ScanStatus.RUNNING, ScanStatus.FAILED])
@@ -109,3 +114,33 @@ def test_client_without_scored_scans_has_no_risk():
     client = models.Client(name="New", domains=[models.Domain(name="new.example", scans=[])])
 
     assert client.risk_score is None
+
+
+def test_a_completed_scan_with_warnings_is_incomplete():
+    # A module that could not check everything may have missed findings, like a failed module
+    flagged = scan(ScanStatus.COMPLETED, Severity.HIGH, warnings=["1 of 3 lookalikes could not be checked"])
+
+    assert flagged.risk_score == 50
+    assert flagged.risk_complete is False
+
+
+# Reviewer's probe on #53: the client's completeness came from the riskiest domain only
+
+
+def test_client_is_incomplete_when_any_domain_scan_is_partial():
+    riskiest = models.Domain(name="a.be", scans=[scan(ScanStatus.COMPLETED, *[Severity.HIGH] * 4, *[Severity.MEDIUM] * 4, *[Severity.LOW] * 8, scan_id=2)])
+    partial = models.Domain(name="b.be", scans=[scan(ScanStatus.PARTIAL, Severity.MEDIUM, scan_id=1)])
+
+    client = models.Client(name="Two domains", domains=[riskiest, partial])
+
+    assert (client.risk_score, client.risk_complete) == (72, False)
+
+
+@pytest.mark.parametrize("names", [("c.be", "d.be"), ("d.be", "c.be")])
+def test_client_completeness_does_not_depend_on_domain_order(names):
+    partial = models.Domain(name=names[0], scans=[scan(ScanStatus.PARTIAL, Severity.HIGH, scan_id=1)])
+    complete = models.Domain(name=names[1], scans=[scan(ScanStatus.COMPLETED, Severity.HIGH, scan_id=2)])
+
+    client = models.Client(name="Tie", domains=[partial, complete])
+
+    assert (client.risk_score, client.risk_complete) == (50, False)

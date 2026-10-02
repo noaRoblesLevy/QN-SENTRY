@@ -49,6 +49,16 @@ Example of a complete finding:
 | `phishing` | `lookalike_domain`, `lookalike_certificate`, `email_security` |
 | `breach` | `breached_email` |
 
+### 10.1.2 Writing Descriptions
+
+Every module writes its own `description`, because the text depends on the details (which data leaked, whether SPF also fails); a fixed text per `type` could not say that. So the report reads as one document, every description answers three questions, in this order and in plain language for a manager:
+
+1. **What is it?** What was found, without jargon or with the jargon explained.
+2. **Why is it a risk?** What an attacker can do with it.
+3. **What to do?** One concrete action.
+
+Example (metadata): *"The metadata of this public document reveals information that the document itself does not show. Internal file paths and server names show how the internal network and file shares are organised, which helps an attacker who gets inside. Remove metadata before publishing documents, e.g. with 'Inspect Document' in Office."*
+
 ## 10.2 Severity Levels
 
 Severity is based on two questions: how easily can an attacker abuse this, and how much damage can it do?
@@ -63,6 +73,8 @@ Severity is based on two questions: how easily can an attacker abuse this, and h
 
 Because QN-Sentry only performs passive reconnaissance, it can rarely prove that something is directly exploitable. `critical` is therefore used sparingly, so the higher levels keep their meaning.
 
+**Combined findings.** Some findings are more serious together. The module decides this within its own area, next to the check that knows why; the risk score only weighs severities. Example: a missing or weak DMARC policy is `high` when SPF also lets every server send, and an SPF record that receivers ignore because of a permanent error (over 10 DNS lookups, a loop or a broken include) counts as letting every server send. Combinations across modules are left for later.
+
 ## 10.3 Module Interface
 
 Every module works the same way, so the worker can run them one after another in a loop and each team member can build modules independently.
@@ -75,10 +87,17 @@ Every module works the same way, so the worker can run them one after another in
 
 | Situation | Example | Behaviour |
 |---|---|---|
-| Part of a module fails, but it still has useful results | crt.sh times out, but dnstwist already found lookalike domains | The module catches the error, logs a warning and returns the findings it has |
+| Part of a module fails, but it still has useful results | crt.sh times out, but dnstwist already found lookalike domains | The module catches the error, reports it with `context.warn(...)` and returns the findings it has. The module stays `completed`; the warning is stored with its module run |
 | The whole module cannot run | dnstwist is not installed | The module raises an error. The worker marks the module as `failed` with the error message and continues with the next module |
 
-Rule of thumb: *do I still have something useful to return?* If yes, catch the error. If no, let it through.
+Rule of thumb: *do I still have something useful to return?* If yes, catch the error and warn. If no, let it through.
+
+A warning tells the reader that the results of a module are incomplete, so "nothing found" is not mistaken for "nothing there". Rules for a warning:
+
+- **One readable sentence**, shown as is in the dashboard and the report: `"The lookalike domains check was skipped: the DNS server did not answer"`.
+- **One warning per kind of problem, with a count**, not one per item: `"3 of 12 document(s) could not be downloaded"`. The worker drops duplicates and keeps at most 20 per module run; more are summarised as `"... and 7 more warnings"`.
+- **No personal data**: no email addresses, names or document names that contain names. The details stay in the worker log.
+- The worker empties the list before each module, and keeps the warnings when the module fails afterwards: they show what went wrong before.
 
 ### 10.3.2 Scan and Module Status
 
@@ -92,6 +111,8 @@ Rule of thumb: *do I still have something useful to return?* If yes, catch the e
 
 Each module in a scan has its own status: `pending`, `running`, `completed` or `failed`. The dashboard shows these to display the progress per module.
 
+A module with warnings is still `completed`, and a scan whose modules all completed is still `completed`: warnings are not a status. The dashboard shows "Completed with warnings" with the sentences, the PDF report lists them under its scope, and the risk score marks itself incomplete when a module has warnings.
+
 ## 10.4 Scan Context
 
 Modules share information through a scan context. The worker creates it at the start of a scan and passes it to every module. Modules fill in what they discover, so later modules can use it.
@@ -102,6 +123,8 @@ Modules share information through a scan context. The worker creates it at the s
 | `person_names` | list of text | Metadata | `["Jan Peeters", "Sofie Maes"]` |
 | `emails` | list of text | Metadata | `["info@badsecurityinc.be", "sofie.maes@badsecurityinc.be"]` |
 | `email_convention` | text, or empty if unknown | Metadata | `first.last` |
+
+The context also has a `warnings` list with `warn()` for the module that is running (10.3.1). It is not shared between modules: the worker empties it before each module, stores it with that module's run, and leaves it out of the context stored with the scan.
 
 The Breach module combines these to derive likely addresses that were never published:
 
@@ -133,6 +156,22 @@ Because modules depend on each other through the context, they always run in thi
 | `first` | `jan@` |
 | *(empty)* | No convention detected; the Breach module only checks published addresses |
 
+### 10.4.3 Name Normalisation
+
+Names become the parts of an email address with one shared function, built in #8 and reused by #12, so detecting a convention and applying it can never disagree.
+
+| Step | Example |
+|---|---|
+| Lowercase | `Jan Peeters` → `jan peeters` |
+| Remove accents (Unicode NFKD) | `Gérard` → `gerard` |
+| Replace letters NFKD does not split | `ß` → `ss`, `æ` → `ae`, `ø` → `o`, `ł` → `l` |
+| Remove apostrophes | `D'Hondt` → `dhondt` |
+| Keep hyphens | `Dierckx-Gérard` → `dierckx-gerard` |
+| First word = first name, the rest = last name | `Sofie Van den Broeck` → `sofie` + `van den broeck` |
+| Join a last name of several words | `van den broeck` → `vandenbroeck` |
+
+The first-word rule is a heuristic: "Anne Marie Peeters" could also be first name "Anne Marie". Joining a multi-word last name is the most common style, but some companies use `sofie.van.den.broeck@`. The Metadata module (#8) therefore learns the style from the real addresses it finds: when a published address contains a multi-word last name, its style is used. Only when there is no such example does the Breach module (#12) try both variants, so the extra lookup is only spent when the evidence is missing.
+
 ## 10.5 API Endpoints
 
 The dashboard communicates with the backend through these REST endpoints. All endpoints return JSON.
@@ -156,13 +195,18 @@ Example response of `GET /api/scans/7`:
   "status": "running",
   "created_at": "2026-10-14T10:02:11Z",
   "modules": [
-    { "module": "attack_surface", "status": "completed", "finding_count": 12, "error": null },
-    { "module": "metadata", "status": "running", "finding_count": 0, "error": null },
-    { "module": "phishing", "status": "pending", "finding_count": 0, "error": null },
-    { "module": "breach", "status": "pending", "finding_count": 0, "error": null }
+    { "module": "attack_surface", "status": "completed", "finding_count": 12, "error": null, "warnings": [] },
+    {
+      "module": "metadata", "status": "completed", "finding_count": 11, "error": null,
+      "warnings": ["1 of 12 document(s) could not be downloaded"]
+    },
+    { "module": "phishing", "status": "running", "finding_count": 0, "error": null, "warnings": [] },
+    { "module": "breach", "status": "pending", "finding_count": 0, "error": null, "warnings": [] }
   ]
 }
 ```
+
+`warnings` is always a list: `[]` when there are none, never `null` (10.3.1).
 
 ### 10.5.1 Scan Progress
 
@@ -207,11 +251,16 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 | `422` | The request body is invalid | `Enter a valid domain name, e.g. example.be` |
 | `503` | The scan could not be queued (Redis unavailable); the scan is marked `failed` | `The scan queue is unavailable. Try again later.` |
 
-## 10.6 Open Questions
+## 10.6 Decisions
 
-- **Name normalisation:** how names with multiple words, hyphens or accents are converted to email addresses (e.g. "Sofie Van den Broeck" becomes `sofie.vandenbroeck` or `sofie.van.den.broeck`; "Gérard" becomes `gerard`). The Metadata module (#8) and the Breach module (#12) must use the same rule.
-- **Descriptions:** does each module write its own `description`, or is there one fixed text per `type` that is reused?
-- **Combined findings:** some findings are more serious in combination (e.g. a permissive SPF record together with DMARC `p=none`). Does the module decide this, or does the risk score (#19) look at combinations?
+The open questions of the first version were decided in #32:
+
+| Question | Decision |
+|---|---|
+| How names become email addresses | One shared function, see 10.4.3 |
+| Who writes `description` | Each module, following 10.1.2 |
+| Combined findings | The module decides within its own area, see 10.2 |
+| Partial failures of a module | Warnings per module run, see 10.3.1 |
 
 ## 10.7 Risk Score
 
@@ -260,7 +309,7 @@ The floor makes the level match the worst finding: with the curve alone, one cri
 
 Rules:
 - **Scan:** only a `completed` or `partial` scan has a score. While a scan runs the findings are incomplete, and a `failed` scan would look safe because it found little: both return `null`.
-- **Partial scan:** keeps its score, with `risk_complete: false`, because a failed module may have missed findings. The dashboard marks the score with an asterisk and shows "Based on 3 of 4 modules". `risk_complete` is `true` for a completed scan and `null` without a score.
-- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score; `risk_complete` comes from that scan.
+- **Incomplete scan:** a `partial` scan, or a scan in which a module reported warnings (10.3.1), keeps its score with `risk_complete: false`, because a failed module or a failed part of one may have missed findings. The dashboard marks the score with an asterisk and shows how many modules completed without problems. `risk_complete` is `true` for a completed scan without warnings and `null` without a score.
+- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score. `risk_complete` is `false` when the newest scored scan of **any** domain is incomplete: a finding missed on another domain could have raised the client's score.
 - The score is **computed from the stored findings** when it is requested, not stored separately, so it always matches the findings. Changing the weights therefore also changes the score of older scans.
 

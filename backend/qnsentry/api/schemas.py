@@ -88,6 +88,8 @@ class ModuleRunOut(BaseModel):
     status: ModuleStatus
     finding_count: int
     error: str | None
+    # Parts that failed while the module still had results; [] when there are none
+    warnings: list[str]
 
 
 class ScanOut(BaseModel):
