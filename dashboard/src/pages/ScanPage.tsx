@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader'
 import Panel from '../components/Panel'
 import RelativeTime from '../components/RelativeTime'
 import Select from '../components/Select'
+import RiskBadge from '../components/RiskBadge'
 import SeverityBadge from '../components/SeverityBadge'
 import StatPanel from '../components/StatPanel'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
@@ -52,6 +53,11 @@ function ScanView({ scanId }: { scanId: number }) {
   }
 
   const { scan, findings } = data
+  // Modules that completed without warnings and are not a placeholder (data contract 10.7)
+  const placeholders = new Set(findings.filter((f) => f.type === 'placeholder').map((f) => f.module))
+  const fullyChecked = scan.modules.filter(
+    (m) => m.status === 'completed' && m.warnings.length === 0 && !placeholders.has(m.module),
+  ).length
   const active = isScanActive(scan.status)
   const visible = findings.filter(
     (f) => (moduleFilter === ALL || f.module === moduleFilter) && (severityFilter === ALL || f.severity === severityFilter),
@@ -84,6 +90,17 @@ function ScanView({ scanId }: { scanId: number }) {
       )}
 
       <div className="stat-grid">
+        {/* Risk score (#19): computed by the backend once the scan has finished */}
+        <div className="stat-panel">
+          <div className="stat-label">Risk score</div>
+          <div className="stat-value">{scan.risk_score ?? '-'}</div>
+          <RiskBadge risk={scan} showScore={false} />
+          {scan.risk_complete === false && (
+            <div className="stat-note">
+              Based on {fullyChecked} of {scan.modules.length} modules without problems
+            </div>
+          )}
+        </div>
         <StatPanel label="Findings" value={findings.length} />
         {SEVERITIES.map((severity) => (
           <StatPanel
