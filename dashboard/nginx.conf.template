@@ -1,6 +1,6 @@
 # nginx fills in ${API_UPSTREAM} from the environment when the container starts
 server {
-    listen 80;
+    listen 8080;
     root /usr/share/nginx/html;
 
     location /api/ {

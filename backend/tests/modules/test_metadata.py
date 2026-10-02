@@ -11,7 +11,7 @@ from qnsentry.modules import MODULES_BY_NAME
 from qnsentry.modules import metadata
 from qnsentry.modules.base import ScanContext
 from qnsentry.modules.metadata import MetadataModule, analyse_site, join_words, to_finding
-from qnsentry.modules.metadata import crawler
+from qnsentry.modules.metadata import crawler, documents
 from qnsentry.modules.metadata.crawler import document_urls, parse_katana_output
 from qnsentry.modules.metadata.documents import safe_name
 from qnsentry.modules.metadata.extract import interpret, read_metadata
@@ -217,8 +217,8 @@ def test_module_analyses_documents_and_fills_the_context(monkeypatch, tmp_path):
     privacy = f"{SITE}/files/privacy-notice.pdf"
     files = {budget: tmp_path / "000-budget-2026.xlsx", privacy: tmp_path / "001-privacy-notice.pdf"}
 
-    monkeypatch.setattr(metadata, "crawl", lambda urls: [f"{SITE}/downloads.html", budget, privacy])
-    monkeypatch.setattr(metadata, "download_documents", lambda urls, folder, hosts: files)
+    monkeypatch.setattr(metadata, "crawl", lambda urls, warn: [f"{SITE}/downloads.html", budget, privacy])
+    monkeypatch.setattr(metadata, "download_documents", lambda urls, folder, hosts, warn: files)
     monkeypatch.setattr(
         metadata, "read_metadata", lambda paths: {files[budget]: BUDGET_XLSX, files[privacy]: CLEAN_PDF}
     )
@@ -233,8 +233,8 @@ def test_module_analyses_documents_and_fills_the_context(monkeypatch, tmp_path):
 
 
 def test_site_without_documents_gives_no_findings(monkeypatch):
-    monkeypatch.setattr(metadata, "crawl", lambda urls: [f"{SITE}/index.html"])
-    monkeypatch.setattr(metadata, "download_documents", lambda urls, folder, hosts: {})
+    monkeypatch.setattr(metadata, "crawl", lambda urls, warn: [f"{SITE}/index.html"])
+    monkeypatch.setattr(metadata, "download_documents", lambda urls, folder, hosts, warn: {})
     monkeypatch.setattr(metadata, "read_metadata", lambda paths: {})
 
     assert analyse_site([SITE], ScanContext(domain="badsecurityinc.be")) == []
@@ -294,3 +294,146 @@ def test_crawl_returns_the_endpoints_katana_found(monkeypatch):
 
 def test_read_metadata_of_no_files_needs_no_exiftool():
     assert read_metadata([]) == {}
+
+
+# ---------- Warnings: a part failed, but the module still has results (#32) ----------
+
+
+def test_start_url_that_cannot_be_reached_is_a_warning(monkeypatch):
+    # badsecurityinc.be answers, www.badsecurityinc.be does not resolve
+    fake_katana(
+        monkeypatch,
+        stdout="\n".join(
+            [
+                '{"request": {"endpoint": "https://badsecurityinc.be"}}',
+                '{"request": {"endpoint": "https://www.badsecurityinc.be"}, "error": "no address found for host"}',
+            ]
+        ),
+    )
+    warnings = []
+
+    found = crawler.crawl(["https://badsecurityinc.be", "https://www.badsecurityinc.be"], warn=warnings.append)
+
+    assert found == ["https://badsecurityinc.be"]
+    # Only the start URL warning: its error is not counted again as a failed page
+    assert warnings == ["https://www.badsecurityinc.be could not be reached, so it was not crawled"]
+
+
+def test_failed_pages_on_a_reachable_site_are_counted_in_one_warning(monkeypatch):
+    fake_katana(
+        monkeypatch,
+        stdout="\n".join(
+            [
+                f'{{"request": {{"endpoint": "{SITE}"}}}}',
+                f'{{"request": {{"endpoint": "{SITE}/a.html"}}, "error": "connection reset"}}',
+                f'{{"request": {{"endpoint": "{SITE}/b.html"}}, "error": "timeout"}}',
+            ]
+        ),
+    )
+    warnings = []
+
+    crawler.crawl([SITE], warn=warnings.append)
+
+    assert warnings == ["2 request(s) failed during the crawl, so some pages may have been missed"]
+
+
+def test_crawl_that_hits_its_time_limit_is_a_warning(monkeypatch):
+    fake_katana(monkeypatch, stdout=f'{{"request": {{"endpoint": "{SITE}"}}}}\n')
+    clock = iter([0.0, float(crawler.CRAWL_SECONDS)])
+    monkeypatch.setattr(crawler.time, "monotonic", lambda: next(clock))
+    warnings = []
+
+    crawler.crawl([SITE], warn=warnings.append)
+
+    assert warnings == [
+        f"The crawl stopped at its limit of {crawler.CRAWL_SECONDS} s, "
+        "so documents deeper in the website may have been missed"
+    ]
+
+
+def test_complete_crawl_has_no_warnings(monkeypatch):
+    fake_katana(monkeypatch, stdout=f'{{"request": {{"endpoint": "{SITE}"}}}}\n')
+    warnings = []
+
+    crawler.crawl([SITE], warn=warnings.append)
+
+    assert warnings == []
+
+
+def test_skipped_documents_are_counted_per_reason_without_their_urls(monkeypatch, tmp_path):
+    urls = [f"{SITE}/files/cv-jan-peeters.pdf", f"{SITE}/files/big.pdf", f"{SITE}/files/ok.pdf", f"{SITE}/files/gone.pdf"]
+    answers = {
+        urls[0]: OSError("connection reset"),
+        urls[1]: "were skipped because they are larger than 20 MB",
+        urls[2]: None,
+        urls[3]: OSError("404"),
+    }
+
+    def fake_download(url, target, allowed_hosts):
+        if isinstance(answers[url], OSError):
+            raise answers[url]
+        return answers[url]
+
+    monkeypatch.setattr(documents, "download", fake_download)
+    warnings = []
+
+    downloaded = documents.download_documents(urls, tmp_path, {"www.badsecurityinc.be"}, warn=warnings.append)
+
+    assert list(downloaded) == [urls[2]]
+    assert warnings == [
+        "2 of 4 document(s) could not be downloaded",
+        "1 of 4 document(s) were skipped because they are larger than 20 MB",
+    ]
+    # Document names can contain personal data (GDPR): they stay out of the warnings
+    assert not any("peeters" in w for w in warnings)
+
+
+def test_documents_over_the_limit_are_a_warning(monkeypatch, tmp_path):
+    urls = [f"{SITE}/files/{i}.pdf" for i in range(documents.MAX_DOCUMENTS + 5)]
+    monkeypatch.setattr(documents, "download", lambda url, target, allowed_hosts: None)
+    warnings = []
+
+    documents.download_documents(urls, tmp_path, {"www.badsecurityinc.be"}, warn=warnings.append)
+
+    assert warnings == [f"Only the first {documents.MAX_DOCUMENTS} of {documents.MAX_DOCUMENTS + 5} documents were analysed"]
+
+
+def test_module_passes_its_warnings_to_the_scan_context(monkeypatch):
+    def crawl(urls, warn):
+        warn("https://www.badsecurityinc.be could not be reached, so it was not crawled")
+        return [f"{SITE}/index.html"]
+
+    monkeypatch.setattr(metadata, "crawl", crawl)
+    monkeypatch.setattr(metadata, "download_documents", lambda urls, folder, hosts, warn: {})
+    monkeypatch.setattr(metadata, "read_metadata", lambda paths: {})
+    context = ScanContext(domain="badsecurityinc.be")
+
+    MetadataModule().run(context)
+
+    assert context.warnings == ["https://www.badsecurityinc.be could not be reached, so it was not crawled"]
+
+
+def test_both_hosts_serving_the_same_site_is_not_a_warning(monkeypatch):
+    # katana reports each page under one of the two hosts only; the other host was reached
+    # too, so a host missing from the results must not be reported as unreachable
+    fake_katana(monkeypatch, stdout='{"request": {"endpoint": "https://www.badsecurityinc.be/team.html"}}\n')
+    warnings = []
+
+    crawler.crawl(["https://badsecurityinc.be", "https://www.badsecurityinc.be"], warn=warnings.append)
+
+    assert warnings == []
+
+
+def test_max_depth_reached_is_not_a_failed_request(monkeypatch):
+    # katana marks links deeper than MAX_DEPTH with "error", but that is the normal limit
+    fake_katana(
+        monkeypatch,
+        stdout=(
+            f'{{"request": {{"endpoint": "{SITE}"}}}}\n'
+            f'{{"request": {{"endpoint": "{SITE}/deep.html"}}, "error": "max depth reached"}}\n'
+        ),
+    )
+    warnings = []
+
+    assert crawler.crawl([SITE], warn=warnings.append) == [SITE]
+    assert warnings == []
