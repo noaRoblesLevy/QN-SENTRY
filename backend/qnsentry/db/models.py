@@ -146,9 +146,11 @@ class Scan(Base):
             return None
         return compute_risk(
             (finding.severity for finding in self.findings),
-            # A partial scan, or one with warnings, keeps its score but is flagged: a failed
-            # module or a failed part of one may have missed findings
-            complete=self.status == ScanStatus.COMPLETED and not any(run.warnings for run in self.module_runs),
+            # A partial scan, one with warnings, or one with a module that is still a placeholder
+            # keeps its score but is flagged: findings may be missing from those modules
+            complete=self.status == ScanStatus.COMPLETED
+            and not any(run.warnings for run in self.module_runs)
+            and not any(finding.type == "placeholder" for finding in self.findings),
         )
 
     @property

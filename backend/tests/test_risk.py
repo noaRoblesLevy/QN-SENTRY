@@ -144,3 +144,13 @@ def test_client_completeness_does_not_depend_on_domain_order(names):
     client = models.Client(name="Tie", domains=[partial, complete])
 
     assert (client.risk_score, client.risk_complete) == (50, False)
+
+
+def test_a_scan_with_a_placeholder_module_is_incomplete():
+    # Attack Surface is a placeholder until #4 to #6: it checked nothing
+    placeholder = scan(ScanStatus.COMPLETED, Severity.HIGH)
+    placeholder.findings.append(models.Finding(severity=Severity.INFO, type="placeholder"))
+
+    assert placeholder.risk_score == 50
+    assert placeholder.risk_complete is False
+
