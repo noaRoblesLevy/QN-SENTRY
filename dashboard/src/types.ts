@@ -17,6 +17,11 @@ export type ScanSummary = {
 export type Domain = {
   id: number
   name: string
+  // A scan needs both (#3, #48)
+  permission_confirmed: boolean
+  verified: boolean
+  // The TXT record that proves ownership, e.g. "qn-sentry-verify=3f9a..."
+  verification_record: string
   // Only included by GET /api/clients/{id}, newest first
   scans?: ScanSummary[]
 }

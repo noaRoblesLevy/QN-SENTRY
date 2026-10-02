@@ -27,6 +27,16 @@ class DomainCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str
+    # The user confirms they own the domain or have written permission to scan it (#3)
+    # validate_default: the check must also run when the field is left out
+    permission_confirmed: bool = Field(False, validate_default=True)
+
+    @field_validator("permission_confirmed")
+    @classmethod
+    def require_permission(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("Confirm that you own this domain or have written permission to scan it.")
+        return value
 
     @field_validator("name")
     @classmethod
@@ -53,6 +63,11 @@ class DomainOut(BaseModel):
 
     id: int
     name: str
+    # Permission (#3) and ownership (#48): a scan needs both
+    permission_confirmed: bool
+    verified: bool
+    # The TXT record to add to the domain, e.g. "qn-sentry-verify=3f9a..."
+    verification_record: str
 
 
 class DomainWithScans(DomainOut):

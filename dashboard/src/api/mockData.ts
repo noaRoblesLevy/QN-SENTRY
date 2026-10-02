@@ -1,25 +1,41 @@
 import type { Client, Finding, ModuleName } from '../types'
 
+/** A fake TXT record value; the real one is an HMAC made by the backend (#48) */
+export function mockVerificationRecord(domain: string): string {
+  let hash = 0
+  for (const char of domain) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  return `qn-sentry-verify=${hash.toString(16).padStart(8, '0').repeat(4)}`
+}
+
+function verifiedDomain(name: string) {
+  return { permission_confirmed: true, verified: true, verification_record: mockVerificationRecord(name) }
+}
+
+export function unverifiedDomain(name: string) {
+  return { permission_confirmed: true, verified: false, verification_record: mockVerificationRecord(name) }
+}
+
 // Fake data until the API is available.
 // Other clients use the reserved .example TLD, so they can never be real domains.
 export const mockClients: Client[] = [
   {
     id: 1,
     name: 'BadSecurityInc',
-    domains: [{ id: 1, name: 'badsecurityinc.be' }],
+    domains: [{ id: 1, name: 'badsecurityinc.be', ...verifiedDomain('badsecurityinc.be') }],
   },
   {
     id: 2,
     name: 'Peeters Bakery',
     domains: [
-      { id: 2, name: 'peeters-bakery.example' },
-      { id: 3, name: 'peeters-bread.example' },
+      { id: 2, name: 'peeters-bakery.example', ...verifiedDomain('peeters-bakery.example') },
+      { id: 3, name: 'peeters-bread.example', ...verifiedDomain('peeters-bread.example') },
     ],
   },
   {
     id: 3,
     name: 'Maes Accounting',
-    domains: [{ id: 4, name: 'maes-accounting.example' }],
+    // Not verified yet, to show the verification step
+    domains: [{ id: 4, name: 'maes-accounting.example', ...unverifiedDomain('maes-accounting.example') }],
   },
 ]
 

@@ -182,6 +182,8 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `POST` | `/api/clients` | Create a client |
 | `GET` | `/api/clients/{id}` | Get a client with its domains and their scans |
 | `POST` | `/api/clients/{id}/domains` | Add a domain to a client |
+| `POST` | `/api/domains/{id}/permission` | Confirm permission for a domain added before #3 |
+| `POST` | `/api/domains/{id}/verify` | Look up the TXT record and mark the domain verified (#48) |
 | `POST` | `/api/domains/{id}/scans` | Start a scan for a domain |
 | `GET` | `/api/scans/{id}` | Get the scan status and the status per module |
 | `GET` | `/api/scans/{id}/findings` | Get the findings of a scan |
@@ -226,10 +228,12 @@ These are added by their own issues and are not part of the walking skeleton (#1
 
 | Endpoint | Request body | Success | Response |
 |---|---|---|---|
-| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`) |
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`) |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
 | `GET /api/clients/{id}` | | `200` | The client; every domain also has `scans` (`id`, `status`, `created_at`), newest first |
-| `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be"}` | `201` | The new domain: `id`, `name` |
+| `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be", "permission_confirmed": true}` | `201` | The new domain: `id`, `name`, `permission_confirmed` (`true`), `verified` (`false`), `verification_record` |
+| `POST /api/domains/{id}/permission` | | `200` | The domain with `permission_confirmed: true` |
+| `POST /api/domains/{id}/verify` | | `200` | The domain with `verified: true`; `409` when the record is not found, `503` when the DNS lookup failed |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
 | `GET /api/scans/{id}` | | `200` | See the example above |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
@@ -239,6 +243,9 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 ### 10.5.4 Rules and Errors
 
 - **A domain belongs to one client only.** Adding a domain that already exists, for any client, returns `409`.
+- **Permission is confirmed when a domain is added (#3).** `permission_confirmed` must be `true`, otherwise `422`. A domain added before this rule existed is confirmed with `POST /api/domains/{id}/permission`.
+- **Ownership is proven with a DNS TXT record (#48).** The domain gets a record `qn-sentry-verify=<token>`; the token is an HMAC of the domain name with `DOMAIN_VERIFICATION_SECRET`, so the same installation always asks for the same record. `POST /api/domains/{id}/verify` looks up the TXT records of the domain: an exact match marks it verified (once; it is not checked again), no match gives `409`, a failed lookup `503`.
+- **Only confirmed and verified domains can be scanned.** Otherwise starting a scan returns `403` with what to do. This is enforced by the API, not only by the dashboard.
 - **One active scan per domain.** Starting a scan while another scan of that domain is `queued` or `running` returns `409`.
 - **Stuck scans do not block their domain.** A scan still `queued` or `running` after `SCAN_TIMEOUT_MINUTES` (default 120) is marked `failed` when a new scan of that domain is started. Its unfinished modules get the reason as `error`.
 - **Interrupted scans end as `failed`.** If a worker stops during a scan, the scan is marked `failed` ("The worker stopped during this scan") instead of being run again, so findings are never stored twice.
@@ -247,9 +254,10 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 | Status | When | Example `detail` |
 |---|---|---|
 | `404` | The client, domain or scan does not exist | `Scan not found` |
+| `403` | The domain may not be scanned yet (not confirmed or not verified) | `Verify that you control badsecurityinc.be first: add the TXT record qn-sentry-verify=... to its DNS and click Verify.` |
 | `409` | The request conflicts with the rules above | `A scan is already running for this domain.` |
 | `422` | The request body is invalid | `Enter a valid domain name, e.g. example.be` |
-| `503` | The scan could not be queued (Redis unavailable); the scan is marked `failed` | `The scan queue is unavailable. Try again later.` |
+| `503` | The scan could not be queued (Redis unavailable), or the DNS lookup of a verification failed | `The scan queue is unavailable. Try again later.` |
 
 ## 10.6 Decisions
 
