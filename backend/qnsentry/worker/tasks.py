@@ -14,6 +14,9 @@ from qnsentry.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Warnings stored per module run; more are summarised in one last warning
+MAX_WARNINGS = 20
+
 
 def now() -> datetime:
     return datetime.now(UTC)
@@ -76,6 +79,7 @@ def run_modules(db: Session, scan: models.Scan) -> None:
         module_run.started_at = now()
         db.commit()
 
+        context.warnings = []
         try:
             findings = module.run(context)
         except Exception as error:
@@ -90,10 +94,26 @@ def run_modules(db: Session, scan: models.Scan) -> None:
             module_run.finding_count = len(findings)
             module_run.status = ModuleStatus.COMPLETED
 
+        # Also kept when the module failed afterwards: they show what went wrong before
+        module_run.warnings = limit_warnings(context.warnings)
         module_run.finished_at = now()
         db.commit()
 
-    scan.context = asdict(context)
+    # The warnings belong to the module runs, not to the information shared between modules
+    scan.context = {key: value for key, value in asdict(context).items() if key != "warnings"}
     scan.status = ScanStatus.PARTIAL if any_failed else ScanStatus.COMPLETED
     scan.finished_at = now()
     db.commit()
+
+
+def limit_warnings(warnings: list[str]) -> list[str]:
+    """The warnings without duplicates, in order, at most MAX_WARNINGS.
+
+    A module that warns once per item (e.g. per document) would otherwise flood the
+    database, the dashboard and the report.
+    """
+    unique = list(dict.fromkeys(w.strip() for w in warnings if w and w.strip()))
+    if len(unique) <= MAX_WARNINGS:
+        return unique
+    hidden = len(unique) - (MAX_WARNINGS - 1)
+    return unique[: MAX_WARNINGS - 1] + [f"... and {hidden} more warnings"]

@@ -46,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     elapsed = time.monotonic() - started
+    for warning in context.warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
 
     if args.json:
         print(json.dumps([asdict(f) for f in findings], indent=2, ensure_ascii=False))
