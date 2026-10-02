@@ -85,6 +85,10 @@ class ReportModule:
     module: str
     status: str  # completed, failed, ...
     error: str | None = None
+    # Parts that failed while the module still had results (#32)
+    warnings: list[str] = field(default_factory=list)
+    # False for a module that does not exist yet in this version (a placeholder, #1)
+    available: bool = True
 
 
 @dataclass
@@ -121,16 +125,22 @@ def build_report(data: ReportData) -> bytes:
     ]
 
     counts = Counter(f.severity for f in data.findings)
-    failed = [m for m in data.modules if m.status == "failed"]
+    failed = [m for m in data.modules if m.status == "failed" and m.available]
+    unavailable = [m for m in data.modules if not m.available]
 
     # ---------- Summary ----------
     story += [Paragraph("Summary", styles["h1"]), Paragraph(_summary_text(data, counts), styles["body"])]
-    if failed:
-        names = ", ".join(MODULE_LABELS.get(m.module, m.module).lower() for m in failed)
+    if failed or unavailable:
+        reasons = []
+        if failed:
+            reasons.append(f"{_names(failed)} did not complete")
+        if unavailable:
+            verb = "is" if len(unavailable) == 1 else "are"
+            reasons.append(f"{_names(unavailable)} {verb} not available in this version of QN-Sentry")
         story.append(
             Paragraph(
-                f"<b>Not everything could be checked:</b> {_x(names)} did not complete, so this report "
-                "may be incomplete for that part. See 'Scope' at the end.",
+                f"<b>Not everything could be checked:</b> {_x('; '.join(reasons))}, so this report may be "
+                "incomplete for that part. See 'Scope' at the end.",
                 styles["body"],
             )
         )
@@ -180,7 +190,7 @@ def build_report(data: ReportData) -> bytes:
             "attacker would before an attack: public sources, DNS records, the public website and its "
             "documents, and known data breaches. It did not try to break in, log in or test passwords "
             "(see the legal and ethical framework). The results show the situation on the day of the scan.",
-            styles["body"],
+            styles["intro"],
         )
     )
     story.append(_scope_table(data, styles))
@@ -221,7 +231,7 @@ def _summary_text(data: ReportData, counts: Counter) -> str:
     if total == 0:
         where = (
             "in the parts that could be checked"
-            if any(m.status == "failed" for m in data.modules)
+            if any(m.status == "failed" or not m.available for m in data.modules)
             else "from the outside"
         )
         return (
@@ -234,7 +244,7 @@ def _summary_text(data: ReportData, counts: Counter) -> str:
     if urgent:
         text += (
             f"<b>{urgent}</b> of them {'are' if urgent != 1 else 'is'} serious (critical or high) and should be "
-            "fixed soon: they are listed first under 'What needs attention'."
+            f"fixed soon: {'they are' if urgent != 1 else 'it is'} listed first under 'What needs attention'."
         )
     elif counts["medium"]:
         text += "None of them is serious, but the medium findings should be fixed."
@@ -266,12 +276,15 @@ def _severity_tiles(counts: Counter) -> Table:
 def _module_table(data: ReportData, styles) -> Table:
     header = ["Area", *[SEVERITY_LABELS[s] for s in SEVERITIES], "Total"]
     rows = [header]
-    statuses = {m.module: m.status for m in data.modules}
+    runs = {m.module: m for m in data.modules}
     for module in MODULES:
         found = [f for f in data.findings if f.module == module]
         per = Counter(f.severity for f in found)
         label = MODULE_LABELS[module]
-        if statuses.get(module) == "failed":
+        run = runs.get(module)
+        if run is not None and not run.available:
+            label += " (not available)"
+        elif run is not None and run.status == "failed":
             label += " (not completed)"
         rows.append([Paragraph(_x(label), styles["cell"]), *[per[s] or "" for s in SEVERITIES], len(found)])
     totals = Counter(f.severity for f in data.findings)
@@ -352,8 +365,12 @@ def _scope_table(data: ReportData, styles) -> Table:
         run = statuses.get(module)
         if run is None:
             result = "Not part of this scan"
+        elif not run.available:
+            result = "Not available in this version of QN-Sentry: not checked"
         elif run.status == "failed":
             result = f"Could not be completed: {run.error or 'unknown error'}"
+        elif run.warnings:
+            result = "Checked, with warnings: " + " ".join(_sentence(w) for w in run.warnings)
         else:
             result = "Checked"
         rows.append([Paragraph(_x(MODULE_LABELS[module]), styles["cell"]), Paragraph(_x(result), styles["cell"])])
@@ -385,6 +402,14 @@ def _sorted(findings: list[ReportFinding]) -> list[ReportFinding]:
             MODULES.index(f.module) if f.module in MODULES else len(MODULES),
         ),
     )
+
+
+def _names(modules: list[ReportModule]) -> str:
+    return " and ".join(MODULE_LABELS.get(m.module, m.module).lower() for m in modules)
+
+
+def _sentence(text: str) -> str:
+    return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
 def _x(text: str) -> str:

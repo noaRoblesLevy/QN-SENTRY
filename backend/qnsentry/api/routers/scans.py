@@ -126,6 +126,9 @@ def get_report(scan_id: int, db: Session = Depends(get_db)) -> Response:
 
 
 def report_data(scan: Scan) -> ReportData:
+    # A module that is still a placeholder (#1) only returns a "placeholder" finding: the
+    # report must not present that as a real check or a real finding
+    placeholders = {f.module for f in scan.findings if f.type == "placeholder"}
     return ReportData(
         client=scan.domain.client.name,
         domain=scan.domain.name,
@@ -133,7 +136,16 @@ def report_data(scan: Scan) -> ReportData:
         status=scan.status,
         started_at=scan.started_at or scan.created_at,
         generated_at=datetime.now(UTC),
-        modules=[ReportModule(module=run.module, status=run.status, error=run.error) for run in scan.module_runs],
+        modules=[
+            ReportModule(
+                module=run.module,
+                status=run.status,
+                error=run.error,
+                warnings=list(run.warnings),
+                available=run.module not in placeholders,
+            )
+            for run in scan.module_runs
+        ],
         findings=[
             ReportFinding(
                 module=f.module,
@@ -143,6 +155,7 @@ def report_data(scan: Scan) -> ReportData:
                 asset=f.asset,
             )
             for f in scan.findings
+            if f.type != "placeholder"
         ],
         # Breach sources whose terms require crediting them (e.g. Have I Been Pwned, #13)
         attributions=sorted(

@@ -190,3 +190,59 @@ def test_sources_that_need_attribution_are_credited():
 
 def test_no_sources_line_without_attributions():
     assert "Sources:" not in text_of(build_report(report([BREACH])))
+
+
+# ---------- Placeholder modules and warnings (review of #51) ----------
+
+
+def test_a_placeholder_module_is_not_presented_as_checked():
+    modules = [ReportModule("attack_surface", "completed", available=False)] + [
+        ReportModule(m, "completed") for m in ("metadata", "phishing", "breach")
+    ]
+
+    text = text_of(build_report(report([LOOKALIKE], modules)))
+
+    assert "attack surface is not available in this version of QN-Sentry" in text
+    assert "Not available in this version of QN-Sentry: not checked" in text
+    assert "Attack surface (not available)" in text
+
+
+def test_report_data_leaves_out_placeholder_findings(monkeypatch):
+    # The API reads Settings when it is imported; this test needs no real database
+    for name in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
+        monkeypatch.setenv(name, "test")
+    from qnsentry.api.routers.scans import report_data
+    from qnsentry.db import models
+
+    client = models.Client(name="BadSecurityInc")
+    domain = models.Domain(name="badsecurityinc.be", client=client)
+    scan = models.Scan(
+        id=7,
+        domain=domain,
+        status="completed",
+        created_at=datetime(2026, 10, 2, tzinfo=UTC),
+        module_runs=[
+            models.ModuleRun(module="attack_surface", status="completed", warnings=[]),
+            models.ModuleRun(module="phishing", status="completed", warnings=["1 of 3 lookalike domain(s) could not be checked"]),
+        ],
+        findings=[
+            models.Finding(module="attack_surface", type="placeholder", severity="info", title="Placeholder finding for attack_surface", description="", asset="badsecurityinc.be", details={}),
+            models.Finding(module="phishing", type="lookalike_domain", severity="high", title="Registered lookalike", description="", asset="badsecuritylnc.be", details={}),
+        ],
+    )
+
+    data = report_data(scan)
+
+    assert [f.title for f in data.findings] == ["Registered lookalike"]
+    assert {m.module: m.available for m in data.modules} == {"attack_surface": False, "phishing": True}
+    assert data.modules[1].warnings == ["1 of 3 lookalike domain(s) could not be checked"]
+
+
+def test_warnings_are_shown_under_scope():
+    modules = [ReportModule(m, "completed") for m in ("attack_surface", "metadata", "breach")] + [
+        ReportModule("phishing", "completed", warnings=["1 of 3 lookalike domain(s) could not be checked for certificates"])
+    ]
+
+    text = text_of(build_report(report([LOOKALIKE], modules)))
+
+    assert "Checked, with warnings: 1 of 3 lookalike domain(s) could not be checked for certificates." in text
