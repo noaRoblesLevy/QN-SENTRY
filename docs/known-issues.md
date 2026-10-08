@@ -9,12 +9,10 @@ What QN-Sentry cannot do (yet), and how to solve the problems we ran into oursel
 | **No login.** Anyone who can reach the dashboard or the API sees every client and report. | Authentication with roles is planned. Until then both are bound to `127.0.0.1`, so only the machine itself can reach them. | #20 |
 | **Anyone with access can add any domain, which blocks it for its real owner.** Adding a domain needs a confirmation of permission, and scanning it needs a DNS TXT record (#3, #48), so a domain of someone else can never be scanned. But it can be added, and the real owner then gets `409 already added`. | Fine for one MSP per installation; with logins and roles (#20) adding domains can be limited to administrators. | #20 |
 | **Attack surface is a placeholder.** The module returns one informational finding and does not discover subdomains or open ports yet. | Being built, together with the test VM it is tested against. | #4, #5, #6, #2 |
-| **Employee breaches finds nothing in a normal scan yet.** It checks the addresses in the scan context, which are not filled yet. | The Metadata module will collect published addresses and the naming convention (#8); addresses derived from author names follow (#12). The module itself works: `python -m qnsentry.modules.breach --from-url <team page>`. | #8, #12 |
 | **Only linked documents are found.** A document that no page links to stays invisible to the crawler, as it does to an attacker who only browses. | By design: the crawler stays on the client's hosts, at most 3 links deep, 120 s and 50 documents. | |
 | **DKIM can only be checked for common names.** A missing DKIM key is reported as Low, because the domain may use a selector name that DNS cannot list. | DNS has no way to list the selectors of a domain. | |
 | **Certificates of lookalikes depend on public services.** Cert Spotter allows a small number of free queries per hour; crt.sh is often overloaded and hours behind. | A lookalike that could not be checked reliably is not reported as "no certificate". A real deployment sets `CERTSPOTTER_API_KEY`. | #49 |
 | **Have I Been Pwned needs a paid API key**, and sends business addresses to a service outside the EU. | The default and the demo use the local, fictitious dataset. See the legal framework, 5.3. | #13, #56 |
-| **A website that redirects to another host makes the crawler contact that host.** | katana and the downloader follow the redirect before they refuse it. | #66 |
 | **One worker runs two scans at a time.** Further scans wait in the queue. | `--concurrency=2` in `backend/Dockerfile.worker`. A scan of `badsecurityinc.be` takes about half a minute. | |
 
 ## Troubleshooting
@@ -54,10 +52,6 @@ The reason is shown under the module on the scan page. The other modules still r
 
 A scan of `badsecurityinc.be` normally takes about half a minute. When the Phishing domains module takes many minutes, the DNS resolver is slow for names that **do not exist**: instead of answering "does not exist" at once, it lets each question time out (5 seconds). The resolver check passes, because existing names do resolve, but the lookalike check asks about hundreds of names that do not exist. Seen on a network where Docker's DNS (`127.0.0.11`) took 5 s per such name while `1.1.1.1` answered in 0.2 s, which turned 5 seconds into more than 15 minutes. Run the scan on another network, e.g. a phone hotspot.
 
-### Document metadata fails with "katana did not finish"
-
-katana checks GitHub for a newer version every time it starts, and when that check hangs, the crawl hangs with it, so the module fails after a few minutes although the website is fine. It happens now and then; the fix is #76. Scan again; if it keeps happening, check the network.
-
 ### DNS-filtering networks
 
 Some networks (company, school or hotel Wi-Fi, some home routers) answer "does not exist" for names they filter. The lookalike check would then report "no lookalikes", which looks like a clean result while nothing was checked. So before every scan it looks up a name that always exists (`a.root-servers.net`), and fails with a clear message if that does not work. Run the scan on another network, e.g. a phone hotspot.
@@ -85,3 +79,5 @@ What took us the most time, and why the code looks the way it does. The details 
 | Office metadata | exiftool silently returned nothing for `.docx` and `.xlsx` | Install `libarchive-zip-perl` next to exiftool in the worker image |
 | A fair detection rate | A scanner that reports everything finds everything | Ground truth of planted weaknesses, each finding paired with at most one, and precision next to recall (#47) |
 | Changing the database | `create_all` never changes an existing table | Alembic migrations, applied by the `migrate` service (#62) |
+| Staying on the client's website | katana and Python's `urlopen` follow a redirect to another host before our check sees it | katana never follows redirects (`-disable-redirects`) and the downloader refuses an off-host redirect before following it (#66) |
+| A scan that hung now and then | katana checks GitHub for a new version at every start, and a hanging check hung the crawl | `-disable-update-check`, which also stops the scan from contacting ProjectDiscovery (#76) |
