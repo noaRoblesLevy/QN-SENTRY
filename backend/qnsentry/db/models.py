@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -126,6 +126,8 @@ class ModuleRun(Base):
     )
     finding_count: Mapped[int] = mapped_column(default=0)
     error: Mapped[str | None] = mapped_column(Text)
+    # Parts of the module that failed while it still had results (contract 10.3.1)
+    warnings: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
