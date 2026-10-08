@@ -1,5 +1,7 @@
 # QN-Sentry
 
+[![CI](https://github.com/noaRoblesLevy/QN-SENTRY/actions/workflows/ci.yml/badge.svg)](https://github.com/noaRoblesLevy/QN-SENTRY/actions/workflows/ci.yml)
+
 **An OSINT platform for digital risk assessment for SMEs.**
 
 Given a company domain, QN-Sentry performs an on-demand OSINT assessment of the organisation's external exposure and presents the results in a dashboard and report with a risk score. This way, an SME sees its attack surface from an attacker's perspective, before an attacker does.
@@ -66,7 +68,7 @@ On Linux, add `-u "$(id -u):$(id -g)"` instead of `-u root`, or the generated fi
 
 Always read the generated file before committing it: autogenerate can miss changes (a renamed column becomes a drop and an add) and writes the CHECK constraint of an enum column twice; remove those `sa.CheckConstraint` lines, the `sa.Enum` creates the constraint itself.
 
-Before merging a pull request that changes a model, check that the models and the migrations match (prints `No new upgrade operations detected`):
+CI runs this check on every pull request (see below). To run it yourself, e.g. before pushing (prints `No new upgrade operations detected`):
 
 ```bash
 docker compose run --rm migrate alembic check
@@ -137,6 +139,18 @@ Rules (contract 10.3):
 - **External tools** (subfinder, nmap, dnstwist, ...) are installed in `backend/Dockerfile.worker`.
 
 To activate the module, replace its `PlaceholderModule` in `MODULES` in [`backend/qnsentry/modules/__init__.py`](backend/qnsentry/modules/__init__.py). Keep the order of the list: modules later in the list can use what earlier modules added to the context.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and every push to `main`; a pull request is only merged when all three jobs are green:
+
+| Job | What it checks |
+|---|---|
+| Backend tests and pyflakes | `pytest` and `pyflakes` in `backend/` on Python 3.13 |
+| Migrations match the models | all migrations on an empty PostgreSQL 17, then `alembic check`: fails when a model change has no migration |
+| Dashboard lint and build | `pnpm lint` and `pnpm build` in `dashboard/` |
+
+The jobs need no secrets: the database exists only during the job. The tests need no network either: DNS, HTTP and external tools are replaced by fakes or local servers.
 
 ## Documentation
 
