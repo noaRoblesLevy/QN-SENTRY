@@ -1,8 +1,11 @@
-import type { Client, Finding, ModuleName } from '../types'
+import type { Client, Finding, ModuleName, Risk } from '../types'
+
+// Clients as the mock stores them: the risk score is computed when the API returns them
+export type StoredClient = Omit<Client, keyof Risk>
 
 // Fake data until the API is available.
 // Other clients use the reserved .example TLD, so they can never be real domains.
-export const mockClients: Client[] = [
+export const mockClients: StoredClient[] = [
   {
     id: 1,
     name: 'BadSecurityInc',
