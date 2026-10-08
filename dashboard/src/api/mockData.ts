@@ -38,6 +38,18 @@ export function failingModule(domain: string): { module: ModuleName; error: stri
     : null
 }
 
+// Domains whose phishing module completes with a warning (#32): a partial failure that
+// did not stop the module, shown as "Completed with warnings"
+export function moduleWarnings(domain: string): Partial<Record<ModuleName, string[]>> {
+  return domain.includes('bakery')
+    ? {
+        phishing: [
+          'The certificates of 1 of 3 lookalike domains could not be checked: Cert Spotter answered 429 (too many requests) and crt.sh found nothing yet.',
+        ],
+      }
+    : {}
+}
+
 export type FindingTemplate = Omit<Finding, 'id' | 'created_at'>
 
 /** Homoglyph lookalike: badsecurityinc.be -> badsecuritylnc.be (lowercase l instead of i) */
