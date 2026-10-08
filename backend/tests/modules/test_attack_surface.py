@@ -61,14 +61,14 @@ def test_dnsx_output_gives_addresses_and_cnames_of_names_that_resolve():
 # ---------- Discovery ----------
 
 
-def fake_tools(monkeypatch, passive=None, resolved=None, passive_error=None):
+def fake_tools(monkeypatch, passive=None, resolved=None, passive_error=None, failed_sources=(), failed_lookups=0):
     """passive: {name: sources}; resolved: {name: [ips]}; returns the names given to dnsx."""
     asked = []
 
     def fake_passive(domain):
         if passive_error:
             raise passive_error
-        return dict(passive or {})
+        return dict(passive or {}), list(failed_sources)
 
     def fake_resolve(names):
         asked.extend(names)
@@ -78,7 +78,8 @@ def fake_tools(monkeypatch, passive=None, resolved=None, passive_error=None):
                 return resolved_ips[name]
             # The wildcard probe: a random name under the domain
             return resolved_ips.get("*")
-        return {name: Host(name, list(ips_for(name))) for name in names if ips_for(name)}
+        hosts = {name: Host(name, list(ips_for(name))) for name in names if ips_for(name)}
+        return hosts, failed_lookups
 
     monkeypatch.setattr(subdomains, "passive_subdomains", fake_passive)
     monkeypatch.setattr(subdomains, "resolve", fake_resolve)
@@ -147,8 +148,9 @@ def test_too_many_subdomains_is_a_warning(monkeypatch):
 
     discover(DOMAIN, warn=warnings.append)
 
-    # The domain, www, the first MAX_SUBDOMAINS names and the wildcard probe
+    # The domain, www, the first MAX_SUBDOMAINS names (sorted, so stable between scans) and the probe
     assert len(asked) == subdomains.MAX_SUBDOMAINS + 3
+    assert asked[2:-1] == sorted(many)[: subdomains.MAX_SUBDOMAINS]
     assert warnings == [
         f"Only the first {subdomains.MAX_SUBDOMAINS} of {subdomains.MAX_SUBDOMAINS + 5} subdomains from passive sources were checked"
     ]
@@ -156,7 +158,7 @@ def test_too_many_subdomains_is_a_warning(monkeypatch):
 
 def test_failing_resolution_fails_the_module(monkeypatch):
     # Without DNS nothing was checked: reporting "no subdomains" would look like a clean result
-    monkeypatch.setattr(subdomains, "passive_subdomains", lambda domain: {})
+    monkeypatch.setattr(subdomains, "passive_subdomains", lambda domain: ({}, []))
 
     def broken(names):
         raise RuntimeError("dnsx failed: no resolvers reachable")
@@ -190,6 +192,8 @@ def test_subfinder_is_passive_and_never_checks_for_updates(monkeypatch):
     [(command, _)] = commands
     assert command[:3] == ["subfinder", "-d", DOMAIN]
     assert "-duc" in command
+    # Verbose, because only then subfinder logs the sources that failed
+    assert "-v" in command and "-silent" not in command
     # No active techniques: no brute force wordlist, no recursion into found names
     assert not {"-w", "-wordlist", "-recursive", "-active"} & set(command)
 
@@ -252,3 +256,70 @@ def test_many_addresses_are_shortened_in_the_title(monkeypatch):
 def test_attack_surface_module_replaces_the_placeholder():
     assert isinstance(MODULES_BY_NAME["attack_surface"], AttackSurfaceModule)
     assert MODULES[0].name == "attack_surface"  # first: later modules can use its hosts
+
+
+# ---------- Failures the tools only report on stderr (review of #79) ----------
+
+# Captured from the worker image in a container without network (--network none)
+DNSX_OFFLINE = "[WRN] 3 domains failed to resolve (consider increasing -retry or reducing -threads)\n"
+SUBFINDER_OFFLINE = "\n".join(
+    f"[WRN] Encountered an error with source {source}: dial tcp: lookup failed"
+    for source in ["crtsh", "crtname", "scanmalware", "crtsh", "hackertarget"]
+)
+
+
+def test_the_failure_lines_are_read_from_stderr():
+    assert subdomains.failed_lookups(DNSX_OFFLINE) == 3
+    assert subdomains.failed_lookups("[WRN] 1 domain failed to resolve") == 1
+    assert subdomains.failed_lookups("") == 0
+    assert subdomains.failed_sources(SUBFINDER_OFFLINE) == ["crtname", "crtsh", "hackertarget", "scanmalware"]
+
+
+def test_no_dns_fails_the_module_instead_of_reporting_no_hosts(monkeypatch):
+    # Reviewer's probe: without network both tools exit with 0 and find nothing
+    fake_tools(monkeypatch, failed_sources=["crtsh", "crtname"], failed_lookups=3)
+
+    with pytest.raises(RuntimeError, match="could not be looked up: 3 DNS lookup"):
+        AttackSurfaceModule().run(ScanContext(domain=DOMAIN))
+
+
+def test_some_failed_lookups_are_a_warning(monkeypatch):
+    fake_tools(
+        monkeypatch,
+        passive={"www.badsecurityinc.be": ["crtname"]},
+        resolved={"badsecurityinc.be": ["76.76.21.21"]},
+        failed_lookups=1,
+    )
+    warnings = []
+
+    hosts = discover(DOMAIN, warn=warnings.append)
+
+    assert [h.name for h in hosts] == ["badsecurityinc.be"]
+    assert warnings == ["1 DNS lookup(s) failed, so hosts of badsecurityinc.be may be missing"]
+
+
+def test_nothing_found_while_sources_failed_is_a_warning(monkeypatch):
+    fake_tools(monkeypatch, resolved={"badsecurityinc.be": ["76.76.21.21"]}, failed_sources=["crtsh", "leakix"])
+    warnings = []
+
+    discover(DOMAIN, warn=warnings.append)
+
+    assert warnings == [
+        "No subdomains were found in passive sources, and 2 source(s) could not be searched "
+        "(crtsh, leakix), so subdomains may be missing"
+    ]
+
+
+def test_a_few_failing_sources_are_normal_when_names_were_found(monkeypatch):
+    # Online, some sources always fail (an API down or wanting a key): no warning then
+    fake_tools(
+        monkeypatch,
+        passive={"www.badsecurityinc.be": ["crtname"]},
+        resolved={"badsecurityinc.be": ["76.76.21.21"], "www.badsecurityinc.be": ["76.76.21.21"]},
+        failed_sources=["crtsh", "digitorus", "driftnet", "leakix", "reconeer", "submd"],
+    )
+    warnings = []
+
+    discover(DOMAIN, warn=warnings.append)
+
+    assert warnings == []
