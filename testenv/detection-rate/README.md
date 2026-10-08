@@ -52,6 +52,9 @@ And three numbers for the conclusion:
 |---|---|---|---|---|---|---|
 | 01/10/2026 | 2: `main` plus #49 to #54 | `fb2f8aa` | 16/16 (100%) | 100% | 100% | 12 |
 | 01/10/2026 | 3: `main` plus #53, without #49 | `fb2f8aa` | 15/16 (94%): lookalike certificate missed | 94% | 100% | 12 |
+| 08/10/2026 | 13: `main` with #70, #71 and #74 | `f5b7b42` | 22/23 (96%): lookalike certificate missed, #49 not merged yet | 96% | 100% | 6 |
+
+Scan 13 is the first with the addresses of #74: Metadata 13/13 (documents, addresses, convention) and Breach 5/5; `br-pieter` waits for #12.
 
 Per module for scan 2: Metadata 11/11, Phishing 5/5; Attack Surface (5) and Breach (6) and the email convention (1) are pending. Scan 3 shows the measurement doing its job: without the certificate check of #49, `ph-certificate` is reported as missed.
 
