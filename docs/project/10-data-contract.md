@@ -123,6 +123,7 @@ Modules share information through a scan context. The worker creates it at the s
 | `person_names` | list of text | Metadata | `["Jan Peeters", "Sofie Maes"]` |
 | `emails` | list of text | Metadata | `["info@badsecurityinc.be", "sofie.maes@badsecurityinc.be"]` |
 | `email_convention` | text, or empty if unknown | Metadata | `first.last` |
+| `last_name_style` | `joined`, `separated`, or empty if unknown | Metadata | `joined` (`lotte.vandenbroeck@`) |
 
 The context also has a `warnings` list with `warn()` for the module that is running (10.3.1). It is not shared between modules: the worker empties it before each module, stores it with that module's run, and leaves it out of the context stored with the scan.
 
@@ -172,6 +173,13 @@ Names become the parts of an email address with one shared function, built in #8
 
 The first-word rule is a heuristic: "Anne Marie Peeters" could also be first name "Anne Marie". Joining a multi-word last name is the most common style, but some companies use `sofie.van.den.broeck@`. The Metadata module (#8) therefore learns the style from the real addresses it finds: when a published address contains a multi-word last name, its style is used. Only when there is no such example does the Breach module (#12) try both variants, so the extra lookup is only spent when the evidence is missing.
 
+How the Metadata module detects the convention (`backend/qnsentry/modules/metadata/emails.py`, the shared function is `backend/qnsentry/modules/names.py`):
+
+- The published addresses are the addresses of the client's domain on the crawled web pages (`mailto:` links and text).
+- For every convention it counts the author names from the documents that give a published address; for a last name of several words both styles are tried, which sets `last_name_style`.
+- The convention with the most matches wins, but only with **at least two** names: one match can be chance. On a tie, the convention that comes first in 10.4.2 wins.
+- On the test website, 6 of the 7 authors match `first.last` with `joined` last names; the seventh (Pieter Mertens) has no published address, which is the case #12 is for.
+
 ## 10.5 API Endpoints
 
 The dashboard communicates with the backend through these REST endpoints. All endpoints return JSON.
@@ -185,6 +193,7 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `POST` | `/api/domains/{id}/scans` | Start a scan for a domain |
 | `GET` | `/api/scans/{id}` | Get the scan status and the status per module |
 | `GET` | `/api/scans/{id}/findings` | Get the findings of a scan |
+| `GET` | `/api/scans/{id}/report.pdf` | Download the PDF summary report of a finished scan (#17) |
 
 Example response of `GET /api/scans/7`:
 
@@ -219,7 +228,6 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | Endpoint | Issue |
 |---|---|
 | Approve a domain on the target allowlist | #3 |
-| Download the PDF report of a scan | #17 |
 | Log in | #20 |
 
 ### 10.5.3 Request and Response Bodies
@@ -233,6 +241,7 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
 | `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level` and `risk_complete` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
+| `GET /api/scans/{id}/report.pdf` | | `200` | `application/pdf`, as a download; `409` while the scan is `queued` or `running` |
 
 Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
 
