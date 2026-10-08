@@ -29,7 +29,9 @@ Example of a complete finding:
   "severity": "high",
   "asset": "jan.peeters@badsecurityinc.be",
   "details": {
-    "origin": "derived from 'Jan Peeters' (first.last)",
+    "origin": "derived",
+    "derived_from": "Jan Peeters",
+    "convention": "first.last",
     "breaches": [
       { "name": "ExampleShop", "date": "2021-06-22", "data": ["Emails", "Passwords"] },
       { "name": "ExampleForum", "date": "2019-03-10", "data": ["Emails", "Usernames"] }
@@ -37,6 +39,8 @@ Example of a complete finding:
   }
 }
 ```
+
+For `breached_email`, `origin` is `"found publicly"` (the address is on the website) or `"derived"` (made from a name in document metadata with the company's convention, #12); a derived address also has `derived_from` and `convention`.
 
 ### 10.1.1 Finding Types
 

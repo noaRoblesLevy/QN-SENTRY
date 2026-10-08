@@ -419,3 +419,73 @@ def test_breach_module_replaces_the_placeholder_and_can_be_stored():
 
     row = models.Finding(**asdict(to_finding("jan.peeters@badsecurityinc.be", [SHOP], "found publicly")))
     assert row.severity == "high"
+
+
+# ---------- Derived addresses (#12) ----------
+
+from qnsentry.modules.breach import DERIVED, PUBLISHED, derived_addresses  # noqa: E402
+
+
+def context_with(names, emails=(), convention="first.last", style=None):
+    return ScanContext(
+        domain="badsecurityinc.be",
+        person_names=list(names),
+        emails=list(emails),
+        email_convention=convention,
+        last_name_style=style,
+    )
+
+
+def test_an_author_without_a_published_address_gets_one_in_the_convention():
+    # The test environment: Pieter Mertens is only an author in the annual report
+    context = context_with(["Jan Peeters", "Pieter Mertens"], emails=["jan.peeters@badsecurityinc.be"], style="joined")
+
+    assert derived_addresses(context) == {"pieter.mertens@badsecurityinc.be": "Pieter Mertens"}
+
+
+def test_nothing_is_derived_without_a_convention():
+    assert derived_addresses(context_with(["Pieter Mertens"], convention=None)) == {}
+
+
+def test_both_styles_are_tried_only_when_the_style_is_unknown():
+    names = ["Lotte Van den Broeck", "Pieter Mertens"]
+
+    assert set(derived_addresses(context_with(names))) == {
+        "lotte.vandenbroeck@badsecurityinc.be",
+        "lotte.van.den.broeck@badsecurityinc.be",
+        "pieter.mertens@badsecurityinc.be",  # one word: both styles give the same address once
+    }
+    assert set(derived_addresses(context_with(names, style="joined"))) == {
+        "lotte.vandenbroeck@badsecurityinc.be",
+        "pieter.mertens@badsecurityinc.be",
+    }
+
+
+def test_a_name_that_cannot_become_an_address_is_skipped():
+    assert derived_addresses(context_with(["Madonna", "Pieter Mertens"], style="joined")) == {
+        "pieter.mertens@badsecurityinc.be": "Pieter Mertens"
+    }
+
+
+def test_derived_addresses_are_checked_and_the_finding_says_from_which_name():
+    source = FakeSource({"pieter.mertens@badsecurityinc.be": [SHOP], "jan.peeters@badsecurityinc.be": [FORUM]})
+    context = context_with(["Jan Peeters", "Pieter Mertens"], emails=["jan.peeters@badsecurityinc.be"], style="joined")
+
+    findings = {f.asset: f for f in BreachModule(lambda: source).run(context)}
+
+    assert source.looked_up == ["jan.peeters@badsecurityinc.be", "pieter.mertens@badsecurityinc.be"]
+    assert findings["jan.peeters@badsecurityinc.be"].details["origin"] == PUBLISHED
+    assert "derived_from" not in findings["jan.peeters@badsecurityinc.be"].details
+    pieter = findings["pieter.mertens@badsecurityinc.be"]
+    assert pieter.severity == Severity.HIGH
+    assert pieter.details["origin"] == DERIVED
+    assert (pieter.details["derived_from"], pieter.details["convention"]) == ("Pieter Mertens", "first.last")
+    assert "derived it from the name Pieter Mertens" in pieter.description
+
+
+def test_a_derived_address_in_no_breach_gives_no_finding():
+    # Only addresses that appear in a breach are stored: the others are not kept anywhere
+    source = FakeSource({})
+
+    assert BreachModule(lambda: source).run(context_with(["Pieter Mertens"], style="joined")) == []
+    assert source.looked_up == ["pieter.mertens@badsecurityinc.be"]
