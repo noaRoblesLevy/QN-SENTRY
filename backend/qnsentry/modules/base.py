@@ -28,6 +28,9 @@ class ScanContext:
     person_names: list[str] = field(default_factory=list)
     emails: list[str] = field(default_factory=list)
     email_convention: str | None = None
+    # Hosts of the domain that resolve, from Attack Surface (#4) for its port and web checks:
+    # [{"name": "www.example.be", "ips": ["192.0.2.10"]}]
+    live_hosts: list[dict] = field(default_factory=list)
     # How a last name of several words is written: "joined" or "separated" (contract 10.4.3)
     last_name_style: str | None = None
     # Warnings of the module that is running; the worker empties the list before each module
