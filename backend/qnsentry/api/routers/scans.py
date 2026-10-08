@@ -6,6 +6,7 @@ from kombu.exceptions import OperationalError as QueueUnavailable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from qnsentry.api.routers.domains import record_present
 from qnsentry.api.schemas import FindingOut, ModuleRunOut, ScanOut, ScanSummary
 from qnsentry.config import settings
 from qnsentry.db.models import Domain, Finding, ModuleRun, Scan, ScanStatus
@@ -41,6 +42,29 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
     domain = db.get(Domain, domain_id)
     if domain is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain not found")
+    # Only domains the user may scan (#3) and has proven to control (#48), checked here and
+    # not only in the dashboard
+    if not domain.permission_confirmed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm that you own this domain or have written permission to scan it before scanning.",
+        )
+    if not domain.verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Verify that you control {domain.name} first: add the TXT record "
+            f"{domain.verification_record} to its DNS and click Verify.",
+        )
+    # Checked again at every scan: a client that removes the record withdraws its
+    # permission, and from then on its domain is not scanned anymore (legal framework 5.1)
+    if not record_present(domain):
+        domain.verified_at = None
+        db.commit()
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"The TXT record {domain.verification_record} is no longer on {domain.name}, so the "
+            "permission to scan it is withdrawn. Add the record again and click Verify.",
+        )
 
     # Only one active scan per domain: a second one would repeat the same work
     active = db.scalar(

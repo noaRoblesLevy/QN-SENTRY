@@ -45,7 +45,10 @@ export const httpApi: Api = {
   listClients: () => request('/api/clients'),
   getClient: (clientId) => request(`/api/clients/${clientId}`),
   createClient: (name) => post('/api/clients', { name }),
-  addDomain: (clientId, name) => post(`/api/clients/${clientId}/domains`, { name }),
+  addDomain: (clientId, name, permissionConfirmed) =>
+    post(`/api/clients/${clientId}/domains`, { name, permission_confirmed: permissionConfirmed }),
+  confirmPermission: (domainId) => post(`/api/domains/${domainId}/permission`),
+  verifyDomain: (domainId) => post(`/api/domains/${domainId}/verify`),
   startScan: (domainId) => post(`/api/domains/${domainId}/scans`),
   getScan: (scanId) => request(`/api/scans/${scanId}`),
   getFindings: (scanId) => request(`/api/scans/${scanId}/findings`),

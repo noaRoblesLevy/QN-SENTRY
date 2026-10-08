@@ -2,7 +2,7 @@ import type { Client, Domain, Finding, ModuleName, ModuleRun, Risk, Scan, ScanSt
 import { MODULES } from '../lib/labels'
 import { computeRisk, NO_RISK } from '../lib/risk'
 import { ApiError, type Api } from './api'
-import { failingModule, findingTemplates, moduleWarnings, mockClients, mockScanHistory, type StoredClient } from './mockData'
+import { failingModule, findingTemplates, moduleWarnings, unverifiedDomain, mockClients, mockScanHistory, type StoredClient } from './mockData'
 
 // An in-memory imitation of the backend. A scan waits in the queue briefly and
 // then runs the four modules one after another, like the Celery worker will.
@@ -166,10 +166,13 @@ export const mockApi: Api = {
       return withRisk(client)
     }),
 
-  addDomain: (clientId, name) =>
+  addDomain: (clientId, name, permissionConfirmed) =>
     delay(() => {
       const client = clients.find((c) => c.id === clientId)
       if (!client) throw new ApiError(404, 'Client not found')
+      if (!permissionConfirmed) {
+        throw new ApiError(422, 'Confirm that you own this domain or have written permission to scan it.')
+      }
       const domainName = name.trim().toLowerCase()
       if (!DOMAIN_RE.test(domainName)) {
         throw new ApiError(422, 'Enter a domain name like example.be, without https:// or a path.')
@@ -177,14 +180,35 @@ export const mockApi: Api = {
       if (clients.some((c) => c.domains.some((d) => d.name === domainName))) {
         throw new ApiError(409, `${domainName} is already added.`)
       }
-      const domain: Domain = { id: nextDomainId++, name: domainName }
+      const domain: Domain = { id: nextDomainId++, name: domainName, ...unverifiedDomain(domainName) }
       client.domains.push(domain)
+      return domain
+    }),
+
+  confirmPermission: (domainId) =>
+    delay(() => {
+      const domain = findDomain(domainId)
+      domain.permission_confirmed = true
+      return domain
+    }),
+
+  // The mock cannot look up DNS: verification always succeeds
+  verifyDomain: (domainId) =>
+    delay(() => {
+      const domain = findDomain(domainId)
+      domain.verified = true
       return domain
     }),
 
   startScan: (domainId) =>
     delay(() => {
-      findDomain(domainId)
+      const domain = findDomain(domainId)
+      if (!domain.permission_confirmed) {
+        throw new ApiError(403, 'Confirm that you own this domain or have written permission to scan it before scanning.')
+      }
+      if (!domain.verified) {
+        throw new ApiError(403, `Verify that you control ${domain.name} first: add the TXT record ${domain.verification_record} to its DNS and click Verify.`)
+      }
       const active = scans.find((s) => s.domainId === domainId && ['queued', 'running'].includes(progress(s).status))
       if (active) throw new ApiError(409, 'A scan is already running for this domain.')
       return summary(createScan(domainId, Date.now()))
