@@ -162,7 +162,11 @@ The problems that cost the most time, how we found them and what we changed. The
 
 ### 4.1 SMEs
 
-**TO COMPLETE** with sources: share of SMEs in the Belgian economy, how often they are hit by phishing and ransomware, and why they rarely have security staff. Point to make: reconnaissance costs an attacker almost nothing and uses exactly the information QN-Sentry collects.
+Belgium's economy is an economy of small companies. At the end of 2022 Belgium had almost 1.142 million active SMEs, and 95.6% of its enterprises were micro-enterprises with fewer than ten employees, against an EU average of 93.7% (FPS Economy, as reported by The Brussels Times, [1]). Most of them have no security team and no budget for a penetration test.
+
+They are attacked all the same. In the Flemish government's cybersecurity barometer for 2024, 45.8% of Flemish businesses fell victim to a cyberattack, and the study notes that small and medium enterprises in particular often have inadequate procedures and measures ([2]).
+
+Most attacks start with reconnaissance that costs an attacker nothing: names and usernames from public documents, a lookalike domain, a domain whose email can be spoofed, addresses that appeared in a data breach. That is exactly the information QN-Sentry collects, so an SME sees what an attacker sees before the attack, without needing in-house expertise.
 
 ### 4.2 Managed service providers
 
@@ -170,7 +174,16 @@ Many SMEs outsource IT to an MSP. QN-Sentry is designed for that model: one inst
 
 ### 4.3 NIS2
 
-**TO COMPLETE** with sources (Belgian NIS2 law and the Centre for Cybersecurity Belgium): which organisations fall under it, the duty to take appropriate risk-management measures, and why suppliers of those organisations (often SMEs) are asked to show the same. An external exposure assessment helps to identify risks and to show that they are managed; it does not make an organisation compliant on its own.
+The European NIS2 Directive (Directive (EU) 2022/2555, [3]) obliges organisations in critical and important sectors to manage their cybersecurity risks. Belgium transposed it with the law of 26 April 2024 establishing a framework for the cybersecurity of network and information systems of general interest for public security, published in the Belgian Official Gazette on 17 May 2024 and in force since 18 October 2024 ([4], [5]). The Centre for Cybersecurity Belgium (CCB) is the competent authority ([5], [6]).
+
+What it means for SMEs:
+
+- **Directly:** the law applies to entities in the listed sectors, as *essential* or *important* entities depending on sector and size; in principle from medium-sized enterprises upwards ([5], [6]). Covered entities had to register with the CCB, take appropriate and proportionate risk-management measures, report significant incidents, and their management bodies must be trained in cyber risk ([5], [6]).
+- **Indirectly, through the supply chain:** supply chain security is one of the required risk-management measures ([6]). A covered company therefore asks its suppliers, many of them SMEs and MSPs, to show that they manage their own risks.
+
+An external exposure assessment supports both: it identifies concrete risks (spoofable email domains, exposed services, leaked credentials) and it documents that they are checked regularly. It does **not** make an organisation compliant on its own: NIS2 asks for a complete risk-management approach, of which knowing your external exposure is one part.
+
+> **To verify before submission** (the official texts could not be retrieved automatically; these come from secondary sources): the exact size thresholds per sector, the incident reporting deadlines (an early warning within 24 hours, a notification within 72 hours and a final report within one month are commonly cited), and the maximum fines. Check them in the Directive on EUR-Lex and in the Belgian law on the Official Gazette, and quote from there.
 
 ### 4.4 GDPR
 
@@ -255,4 +268,10 @@ The weekly timesheets (who, what, when, hours) are on Google Drive. **TO COMPLET
 | Alembic documentation | https://alembic.sqlalchemy.org | Database migrations | |
 | DejaVu fonts | https://github.com/dejavu-fonts/dejavu-fonts | Unicode fonts in the PDF report (version 2.37) | 01/10/2026 |
 | GDPR (Regulation (EU) 2016/679) | https://eur-lex.europa.eu/eli/reg/2016/679/oj | Legal framework | |
-| Belgian NIS2 law, Centre for Cybersecurity Belgium | https://ccb.belgium.be | Business context | |
+| [1] The Brussels Times, "Record number of SMEs in Belgium, number of jobs rising" (22/01/2024), figures of the FPS Economy | https://www.brusselstimes.com/887135/record-number-of-smes-in-belgium-number-of-jobs-rising | 4.1: number of SMEs, share of micro-enterprises | 08/10/2026 |
+| [2] The Brussels Times, "Almost half of Flemish companies were cyberattack victims in 2024" (04/05/2025), on the cybersecurity barometer commissioned by the Flemish government | https://www.brusselstimes.com/1563269/almost-half-of-flemish-companies-were-cyberattack-victims-in-2024 | 4.1: share of victims, SMEs | 08/10/2026 |
+| [3] Directive (EU) 2022/2555 (NIS2) | https://eur-lex.europa.eu/eli/dir/2022/2555/oj | 4.3 | **TO COMPLETE**: read the text itself |
+| [4] Belgian law of 26 April 2024 (NIS2 law), Belgian Official Gazette 17/05/2024 | https://www.ejustice.just.fgov.be | 4.3 | **TO COMPLETE**: read the text itself |
+| [5] Fieldfisher, "Navigating NIS2: Understanding Belgium's Transposition Law for Cybersecurity Compliance" | https://www.fieldfisher.com/en/locations/belgium/insights/navigating-nis2-understanding-belgium-s-transposit | 4.3: publication, entry into force, registration, CCB | 08/10/2026 (via search) |
+| [6] PwC Belgium, "NIS 2 directive" | https://www.pwc.be/en/services/cyber-privacy/NIS-2-directive.html | 4.3: scope, registration, measures | 08/10/2026 (via search) |
+| Centre for Cybersecurity Belgium, NIS2 pages | https://ccb.belgium.be | 4.3 | **TO COMPLETE**: the site refuses automated access, read it in a browser |
