@@ -1,9 +1,12 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from qnsentry.risk import Risk, compute_risk
 
 
 class Base(DeclarativeBase):
@@ -57,6 +60,30 @@ class Client(Base):
         back_populates="client", cascade="all, delete-orphan", order_by="Domain.name"
     )
 
+    @property
+    def risk(self) -> Risk | None:
+        """The client's risk: that of its riskiest domain, from each domain's latest scored scan."""
+        latest = [domain.latest_risk for domain in self.domains]
+        scored = [risk for risk in latest if risk is not None]
+        if not scored:
+            return None
+        riskiest = max(scored, key=lambda risk: risk.score)
+        # Incomplete when any domain's scan is: a finding missed on another domain could have
+        # raised the client's score (the maximum), whichever domain is the riskiest now
+        return replace(riskiest, complete=all(risk.complete for risk in scored))
+
+    @property
+    def risk_score(self) -> int | None:
+        return self.risk.score if self.risk else None
+
+    @property
+    def risk_level(self) -> str | None:
+        return self.risk.level if self.risk else None
+
+    @property
+    def risk_complete(self) -> bool | None:
+        return self.risk.complete if self.risk else None
+
 
 class Domain(Base):
     __tablename__ = "domains"
@@ -71,11 +98,38 @@ class Domain(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    # Permission to scan (#3): when the user confirmed they own the domain or have written
+    # permission to scan it. Ownership (#48): when the DNS TXT record was found.
+    permission_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     client: Mapped[Client] = relationship(back_populates="domains")
     # Newest scan first, as the dashboard expects
     scans: Mapped[list["Scan"]] = relationship(
         back_populates="domain", cascade="all, delete-orphan", order_by="Scan.id.desc()"
     )
+
+    @property
+    def permission_confirmed(self) -> bool:
+        return self.permission_confirmed_at is not None
+
+    @property
+    def verified(self) -> bool:
+        return self.verified_at is not None
+
+    @property
+    def verification_record(self) -> str:
+        """The TXT record the client adds to prove ownership (#48)."""
+        # Imported here: Settings needs the configuration, which models alone do not
+        from qnsentry.config import settings
+        from qnsentry.verification import verification_record
+
+        return verification_record(self.name, settings.domain_verification_secret)
+
+    @property
+    def latest_risk(self) -> Risk | None:
+        """Risk of the newest scan that has a score (running and failed scans have none)."""
+        return next((scan.risk for scan in self.scans if scan.risk is not None), None)
 
 
 class Scan(Base):
@@ -102,6 +156,36 @@ class Scan(Base):
     findings: Mapped[list["Finding"]] = relationship(
         back_populates="scan", cascade="all, delete-orphan", order_by="Finding.id"
     )
+
+    @property
+    def risk(self) -> Risk | None:
+        """Risk score of the scan (#19), computed from its findings.
+
+        Only for a finished scan: while it runs the findings are incomplete, and a failed
+        scan has too few findings to mean anything (it would look safe).
+        """
+        if self.status not in (ScanStatus.COMPLETED, ScanStatus.PARTIAL):
+            return None
+        return compute_risk(
+            (finding.severity for finding in self.findings),
+            # A partial scan, one with warnings, or one with a module that is still a placeholder
+            # keeps its score but is flagged: findings may be missing from those modules
+            complete=self.status == ScanStatus.COMPLETED
+            and not any(run.warnings for run in self.module_runs)
+            and not any(finding.type == "placeholder" for finding in self.findings),
+        )
+
+    @property
+    def risk_score(self) -> int | None:
+        return self.risk.score if self.risk else None
+
+    @property
+    def risk_level(self) -> str | None:
+        return self.risk.level if self.risk else None
+
+    @property
+    def risk_complete(self) -> bool | None:
+        return self.risk.complete if self.risk else None
 
     def mark_failed(self, reason: str) -> None:
         """End the scan as failed; modules that had not finished get `reason` as error."""

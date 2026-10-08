@@ -1,16 +1,18 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from kombu.exceptions import OperationalError as QueueUnavailable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from qnsentry.api.routers.domains import record_present
 from qnsentry.api.schemas import FindingOut, ModuleRunOut, ScanOut, ScanSummary
 from qnsentry.config import settings
 from qnsentry.db.models import Domain, Finding, ModuleRun, Scan, ScanStatus
 from qnsentry.db.session import get_db
 from qnsentry.modules import MODULES
+from qnsentry.report.pdf import ReportData, ReportFinding, ReportModule, build_report
 from qnsentry.worker.tasks import run_scan
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,29 @@ def start_scan(domain_id: int, db: Session = Depends(get_db)) -> Scan:
     domain = db.get(Domain, domain_id)
     if domain is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain not found")
+    # Only domains the user may scan (#3) and has proven to control (#48), checked here and
+    # not only in the dashboard
+    if not domain.permission_confirmed:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm that you own this domain or have written permission to scan it before scanning.",
+        )
+    if not domain.verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Verify that you control {domain.name} first: add the TXT record "
+            f"{domain.verification_record} to its DNS and click Verify.",
+        )
+    # Checked again at every scan: a client that removes the record withdraws its
+    # permission, and from then on its domain is not scanned anymore (legal framework 5.1)
+    if not record_present(domain):
+        domain.verified_at = None
+        db.commit()
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"The TXT record {domain.verification_record} is no longer on {domain.name}, so the "
+            "permission to scan it is withdrawn. Add the record again and click Verify.",
+        )
 
     # Only one active scan per domain: a second one would repeat the same work
     active = db.scalar(
@@ -89,9 +114,78 @@ def get_scan(scan_id: int, db: Session = Depends(get_db)) -> ScanOut:
         status=scan.status,
         created_at=scan.created_at,
         modules=[ModuleRunOut.model_validate(run) for run in scan.module_runs],
+        risk_score=scan.risk_score,
+        risk_level=scan.risk_level,
+        risk_complete=scan.risk_complete,
     )
 
 
 @router.get("/scans/{scan_id}/findings", response_model=list[FindingOut])
 def get_findings(scan_id: int, db: Session = Depends(get_db)) -> list[Finding]:
     return get_scan_or_404(db, scan_id).findings
+
+
+@router.get(
+    "/scans/{scan_id}/report.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}, "description": "The PDF report"}},
+)
+def get_report(scan_id: int, db: Session = Depends(get_db)) -> Response:
+    """PDF summary report of a finished scan, for management (issue #17)."""
+    scan = get_scan_or_404(db, scan_id)
+    if scan.status in (ScanStatus.QUEUED, ScanStatus.RUNNING):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The report is available when the scan has finished."
+        )
+    if scan.status == ScanStatus.FAILED:
+        # Nothing was checked: a report would read like a clean result
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The scan failed, so there are no results to report. Start a new scan."
+        )
+
+    pdf = build_report(report_data(scan))
+    filename = f"qn-sentry-{scan.domain.name}-scan-{scan.id}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def report_data(scan: Scan) -> ReportData:
+    # A module that is still a placeholder (#1) only returns a "placeholder" finding: the
+    # report must not present that as a real check or a real finding
+    placeholders = {f.module for f in scan.findings if f.type == "placeholder"}
+    return ReportData(
+        client=scan.domain.client.name,
+        domain=scan.domain.name,
+        scan_id=scan.id,
+        status=scan.status,
+        started_at=scan.started_at or scan.created_at,
+        generated_at=datetime.now(UTC),
+        modules=[
+            ReportModule(
+                module=run.module,
+                status=run.status,
+                error=run.error,
+                warnings=list(run.warnings),
+                available=run.module not in placeholders,
+            )
+            for run in scan.module_runs
+        ],
+        findings=[
+            ReportFinding(
+                module=f.module,
+                severity=f.severity,
+                title=f.title,
+                description=f.description,
+                asset=f.asset,
+            )
+            for f in scan.findings
+            if f.type != "placeholder"
+        ],
+        # Breach sources whose terms require crediting them (e.g. Have I Been Pwned, #13)
+        attributions=sorted(
+            {f.details["source"] for f in scan.findings if f.module == "breach" and f.details.get("source")}
+        ),
+    )

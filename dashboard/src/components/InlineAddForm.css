@@ -13,3 +13,16 @@
 .inline-add-form > .button {
   margin-top: 22px;
 }
+
+/* A required confirmation, e.g. permission to scan a domain (#3) */
+.inline-add-confirmation {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: 14px;
+}
+
+.inline-add-confirmation input {
+  margin-top: 3px;
+}

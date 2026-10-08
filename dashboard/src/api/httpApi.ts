@@ -36,11 +36,19 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
+/** Direct link to the PDF report of a finished scan (downloaded by the browser, not fetched) */
+export function reportUrl(scanId: number): string {
+  return `${BASE_URL}/api/scans/${scanId}/report.pdf`
+}
+
 export const httpApi: Api = {
   listClients: () => request('/api/clients'),
   getClient: (clientId) => request(`/api/clients/${clientId}`),
   createClient: (name) => post('/api/clients', { name }),
-  addDomain: (clientId, name) => post(`/api/clients/${clientId}/domains`, { name }),
+  addDomain: (clientId, name, permissionConfirmed) =>
+    post(`/api/clients/${clientId}/domains`, { name, permission_confirmed: permissionConfirmed }),
+  confirmPermission: (domainId) => post(`/api/domains/${domainId}/permission`),
+  verifyDomain: (domainId) => post(`/api/domains/${domainId}/verify`),
   startScan: (domainId) => post(`/api/domains/${domainId}/scans`),
   getScan: (scanId) => request(`/api/scans/${scanId}`),
   getFindings: (scanId) => request(`/api/scans/${scanId}/findings`),

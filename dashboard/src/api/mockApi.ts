@@ -1,7 +1,8 @@
-import type { Client, Domain, Finding, ModuleName, ModuleRun, Scan, ScanStatus, ScanSummary } from '../types'
+import type { Client, Domain, Finding, ModuleName, ModuleRun, Risk, Scan, ScanStatus, ScanSummary } from '../types'
 import { MODULES } from '../lib/labels'
+import { computeRisk, NO_RISK } from '../lib/risk'
 import { ApiError, type Api } from './api'
-import { failingModule, findingTemplates, moduleWarnings, mockClients, mockScanHistory } from './mockData'
+import { failingModule, findingTemplates, moduleWarnings, unverifiedDomain, mockClients, mockScanHistory, type StoredClient } from './mockData'
 
 // An in-memory imitation of the backend. A scan waits in the queue briefly and
 // then runs the four modules one after another, like the Celery worker will.
@@ -18,7 +19,7 @@ type StoredScan = {
   findings: Finding[]
 }
 
-const clients: Client[] = structuredClone(mockClients)
+const clients: StoredClient[] = structuredClone(mockClients)
 const scans: StoredScan[] = []
 let nextClientId = Math.max(...clients.map((c) => c.id)) + 1
 let nextDomainId = Math.max(...clients.flatMap((c) => c.domains.map((d) => d.id))) + 1
@@ -101,19 +102,48 @@ function progress(scan: StoredScan, now = Date.now()) {
   return { domain, status, modules, findings }
 }
 
+/** Risk of a scan (data contract 10.7): only completed and partial scans have a score */
+function scanRisk(scan: StoredScan): Risk {
+  const { status, findings, modules } = progress(scan)
+  // Incomplete when a module failed or reported warnings: findings may have been missed
+  const complete = status === 'completed' && modules.every((m) => m.warnings.length === 0)
+  return status === 'completed' || status === 'partial'
+    ? computeRisk(
+        findings.map((f) => f.severity),
+        complete,
+      )
+    : NO_RISK
+}
+
 function summary(scan: StoredScan): ScanSummary {
-  return { id: scan.id, status: progress(scan).status, created_at: new Date(scan.startedAt).toISOString() }
+  return { id: scan.id, status: progress(scan).status, created_at: new Date(scan.startedAt).toISOString(), ...scanRisk(scan) }
+}
+
+/** A client's risk is that of its riskiest domain, using each domain's newest scored scan */
+function withRisk(client: StoredClient): Client {
+  const latest = client.domains.map((domain) =>
+    scans
+      .filter((s) => s.domainId === domain.id)
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .map(scanRisk)
+      .find((risk) => risk.risk_score !== null),
+  )
+  const scored = latest.filter((risk): risk is Risk => risk !== undefined)
+  const worst = [...scored].sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))[0]
+  if (!worst) return { ...client, ...NO_RISK }
+  // Incomplete when any domain's latest scan is (data contract 10.7)
+  return { ...client, ...worst, risk_complete: scored.every((risk) => risk.risk_complete) }
 }
 
 export const mockApi: Api = {
-  listClients: () => delay(() => clients),
+  listClients: () => delay(() => clients.map(withRisk)),
 
   getClient: (clientId) =>
     delay(() => {
       const client = clients.find((c) => c.id === clientId)
       if (!client) throw new ApiError(404, 'Client not found')
       return {
-        ...client,
+        ...withRisk(client),
         domains: client.domains.map((domain) => ({
           ...domain,
           scans: scans
@@ -131,15 +161,18 @@ export const mockApi: Api = {
       if (clients.some((c) => c.name.toLowerCase() === trimmed.toLowerCase())) {
         throw new ApiError(409, `A client named ${trimmed} already exists.`)
       }
-      const client: Client = { id: nextClientId++, name: trimmed, domains: [] }
+      const client: StoredClient = { id: nextClientId++, name: trimmed, domains: [] }
       clients.push(client)
-      return client
+      return withRisk(client)
     }),
 
-  addDomain: (clientId, name) =>
+  addDomain: (clientId, name, permissionConfirmed) =>
     delay(() => {
       const client = clients.find((c) => c.id === clientId)
       if (!client) throw new ApiError(404, 'Client not found')
+      if (!permissionConfirmed) {
+        throw new ApiError(422, 'Confirm that you own this domain or have written permission to scan it.')
+      }
       const domainName = name.trim().toLowerCase()
       if (!DOMAIN_RE.test(domainName)) {
         throw new ApiError(422, 'Enter a domain name like example.be, without https:// or a path.')
@@ -147,14 +180,35 @@ export const mockApi: Api = {
       if (clients.some((c) => c.domains.some((d) => d.name === domainName))) {
         throw new ApiError(409, `${domainName} is already added.`)
       }
-      const domain: Domain = { id: nextDomainId++, name: domainName }
+      const domain: Domain = { id: nextDomainId++, name: domainName, ...unverifiedDomain(domainName) }
       client.domains.push(domain)
+      return domain
+    }),
+
+  confirmPermission: (domainId) =>
+    delay(() => {
+      const domain = findDomain(domainId)
+      domain.permission_confirmed = true
+      return domain
+    }),
+
+  // The mock cannot look up DNS: verification always succeeds
+  verifyDomain: (domainId) =>
+    delay(() => {
+      const domain = findDomain(domainId)
+      domain.verified = true
       return domain
     }),
 
   startScan: (domainId) =>
     delay(() => {
-      findDomain(domainId)
+      const domain = findDomain(domainId)
+      if (!domain.permission_confirmed) {
+        throw new ApiError(403, 'Confirm that you own this domain or have written permission to scan it before scanning.')
+      }
+      if (!domain.verified) {
+        throw new ApiError(403, `Verify that you control ${domain.name} first: add the TXT record ${domain.verification_record} to its DNS and click Verify.`)
+      }
       const active = scans.find((s) => s.domainId === domainId && ['queued', 'running'].includes(progress(s).status))
       if (active) throw new ApiError(409, 'A scan is already running for this domain.')
       return summary(createScan(domainId, Date.now()))
@@ -164,7 +218,14 @@ export const mockApi: Api = {
     delay((): Scan => {
       const scan = findScan(scanId)
       const { domain, status, modules } = progress(scan)
-      return { id: scan.id, domain: domain.name, status, created_at: new Date(scan.startedAt).toISOString(), modules }
+      return {
+        id: scan.id,
+        domain: domain.name,
+        status,
+        created_at: new Date(scan.startedAt).toISOString(),
+        modules,
+        ...scanRisk(scan),
+      }
     }),
 
   getFindings: (scanId) => delay(() => progress(findScan(scanId)).findings),

@@ -4,13 +4,14 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from qnsentry.api.routers import clients, scans
+from qnsentry.api.routers import clients, domains, scans
 from qnsentry.db.session import engine
 
 
 # The "migrate" service creates and updates the database schema before the API starts
 app = FastAPI(title="QN-Sentry API")
 app.include_router(clients.router)
+app.include_router(domains.router)
 app.include_router(scans.router)
 
 

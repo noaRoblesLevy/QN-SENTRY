@@ -1,0 +1,42 @@
+{
+  "_about": "Ground truth of the BadSecurityInc test environment (issue #47): every finding a scan of badsecurityinc.be should report. 'asset' may contain * as a wildcard; 'details' must be a subset of the finding's details. 'pending' explains why an entry cannot be found yet; pending entries are listed but do not count for the detection rate. 'must_not_find' entries are false-positive checks. This file is the single source of the expected findings; other documents link to it. The details of the two web_service entries (login_page, outdated) are to be agreed with the Attack Surface module (#6).",
+  "domain": "badsecurityinc.be",
+  "expected": [
+    {"id": "as-dev-subdomain", "module": "attack_surface", "type": "subdomain", "asset": "dev.badsecurityinc.be", "severity": "info", "planted": "Forgotten staging subdomain, visible in Certificate Transparency logs", "pending": "Attack Surface module (#4) and the test VM (#2)"},
+    {"id": "as-www-subdomain", "module": "attack_surface", "type": "subdomain", "asset": "www.badsecurityinc.be", "severity": "info", "planted": "Website subdomain", "pending": "Attack Surface module (#4)"},
+    {"id": "as-admin-login", "module": "attack_surface", "type": "web_service", "asset": "*dev.badsecurityinc.be*", "details": {"login_page": true}, "severity": "medium", "planted": "Staging admin login page on dev.", "pending": "Attack Surface module (#6) and the test VM (#2)"},
+    {"id": "as-outdated-server", "module": "attack_surface", "type": "web_service", "asset": "*dev.badsecurityinc.be*", "details": {"outdated": true}, "severity": "medium", "planted": "Headers nginx/1.18.0 and PHP/7.4.3", "pending": "Attack Surface module (#6) and the test VM (#2)"},
+    {"id": "as-ssh-2222", "module": "attack_surface", "type": "open_port", "asset": "dev.badsecurityinc.be:2222", "severity": "low", "planted": "Decoy SSH banner on a non-standard port", "pending": "Attack Surface module (#5) and the test VM (#2)"},
+
+    {"id": "md-budget", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/budget-2026.xlsx", "severity": "medium", "planted": "Internal path \\\\SRV-FS01\\Finance\\Budget\\, Excel 2007, two names"},
+    {"id": "md-handbook", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/employee-handbook.pdf", "severity": "medium", "planted": "Internal path in the title, Word 2010"},
+    {"id": "md-it-policy", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/it-security-policy.pdf", "severity": "medium", "planted": "C:\\Users\\ljanssens\\... path, Word 2013"},
+    {"id": "md-vacancy", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/job-vacancy-it-administrator.docx", "severity": "medium", "planted": "Template on \\\\SRV-FS01, username BSI\\ljanssens, Word 2010"},
+    {"id": "md-price-list", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/price-list-2026.xlsx", "severity": "low", "planted": "Username BSI\\twouters, Excel 2013"},
+    {"id": "md-delivery", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/delivery-schedule-q4.xlsx", "severity": "low", "planted": "Username BSI\\gdubois"},
+    {"id": "md-presentation", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/company-presentation.pptx", "severity": "low", "planted": "Two employee names"},
+    {"id": "md-brochure", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/company-brochure-2026.pdf", "severity": "low", "planted": "Employee name, Word 2016"},
+    {"id": "md-annual-report", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/annual-report-2025.pdf", "severity": "low", "planted": "Pieter Mertens, only found in metadata"},
+    {"id": "md-terms", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/terms-and-conditions.pdf", "severity": "low", "planted": "Username jpeeters as author, Word 2010"},
+    {"id": "md-order-form", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/signed-order-form-example.pdf", "severity": "low", "planted": "Scanner KONICA MINOLTA bizhub C308, device BSI-MFP-2F"},
+    {"id": "md-email-addresses", "module": "metadata", "type": "email_address", "asset": "badsecurityinc.be", "severity": "info", "planted": "Addresses on the team and contact pages"},
+    {"id": "md-email-convention", "module": "metadata", "type": "email_convention", "asset": "badsecurityinc.be", "severity": "low", "planted": "Team page addresses follow first.last"},
+
+    {"id": "ph-lookalike", "module": "phishing", "type": "lookalike_domain", "asset": "badsecuritylnc.be", "severity": "high", "planted": "Homoglyph lookalike with an MX record"},
+    {"id": "ph-certificate", "module": "phishing", "type": "lookalike_certificate", "asset": "badsecuritylnc.be", "severity": "high", "planted": "Let's Encrypt certificate through Vercel"},
+    {"id": "ph-spf", "module": "phishing", "type": "email_security", "asset": "badsecurityinc.be", "details": {"check": "spf"}, "severity": "high", "planted": "v=spf1 +all"},
+    {"id": "ph-dmarc", "module": "phishing", "type": "email_security", "asset": "badsecurityinc.be", "details": {"check": "dmarc"}, "severity": "high", "planted": "v=DMARC1; p=none"},
+    {"id": "ph-dkim", "module": "phishing", "type": "email_security", "asset": "badsecurityinc.be", "details": {"check": "dkim"}, "severity": "low", "planted": "No DKIM key (not planted on purpose, but expected)"},
+
+    {"id": "br-jan", "module": "breach", "type": "breached_email", "asset": "jan.peeters@badsecurityinc.be", "severity": "high", "planted": "ExampleShop (passwords), FictionalBikeForum"},
+    {"id": "br-lars", "module": "breach", "type": "breached_email", "asset": "lars.janssens@badsecurityinc.be", "severity": "high", "planted": "DemoGameCloud (passwords)"},
+    {"id": "br-sofie", "module": "breach", "type": "breached_email", "asset": "sofie.maes@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub"},
+    {"id": "br-lotte", "module": "breach", "type": "breached_email", "asset": "lotte.vandenbroeck@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub"},
+    {"id": "br-info", "module": "breach", "type": "breached_email", "asset": "info@badsecurityinc.be", "severity": "low", "planted": "PretendSpamList (address only)"},
+    {"id": "br-pieter", "module": "breach", "type": "breached_email", "asset": "pieter.mertens@badsecurityinc.be", "severity": "high", "planted": "Derived from the author name in the annual report", "pending": "Deriving addresses from names (#12)"}
+  ],
+  "must_not_find": [
+    {"id": "fp-privacy-notice", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/privacy-notice.pdf", "reason": "Cleaned document without metadata"},
+    {"id": "fp-own-domain-lookalike", "module": "phishing", "type": "lookalike_domain", "asset": "badsecurityinc.be", "reason": "The company's own domain is not a lookalike"}
+  ]
+}
