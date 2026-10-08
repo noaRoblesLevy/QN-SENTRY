@@ -1,8 +1,8 @@
-import type { Client, Domain, Finding, ModuleName, ModuleRun, Risk, Scan, ScanStatus, ScanSummary } from '../types'
-import { MODULES } from '../lib/labels'
+import type { Address, Client, Domain, Finding, ModuleName, ModuleRun, Risk, Scan, ScanStatus, ScanSummary } from '../types'
+import { isScanActive, MODULES } from '../lib/labels'
 import { computeRisk, NO_RISK } from '../lib/risk'
 import { ApiError, type Api } from './api'
-import { failingModule, findingTemplates, moduleWarnings, unverifiedDomain, mockClients, mockScanHistory, type StoredClient } from './mockData'
+import { failingModule, findingTemplates, mockAddresses, moduleWarnings, unverifiedDomain, mockClients, mockScanHistory, type StoredClient } from './mockData'
 
 // An in-memory imitation of the backend. A scan waits in the queue briefly and
 // then runs the four modules one after another, like the Celery worker will.
@@ -46,6 +46,21 @@ function findDomain(domainId: number): Domain {
   const domain = clients.flatMap((c) => c.domains).find((d) => d.id === domainId)
   if (!domain) throw new ApiError(404, 'Domain not found')
   return domain
+}
+
+/** The addresses of the newest finished scan of a domain; none before the first scan */
+function discoveredAddresses(domain: Domain): { ip: string; hosts: string[] }[] {
+  const scanned = scans.some((s) => s.domainId === domain.id && !isScanActive(progress(s).status))
+  return scanned ? mockAddresses(domain.name) : []
+}
+
+function addressesOf(domain: Domain): Address[] {
+  const found = discoveredAddresses(domain)
+  const known = new Set(found.map((a) => a.ip))
+  return [
+    ...found.map((a) => ({ ...a, approved: domain.port_scan_ips.includes(a.ip) })),
+    ...domain.port_scan_ips.filter((ip) => !known.has(ip)).map((ip) => ({ ip, hosts: [], approved: true })),
+  ]
 }
 
 function findScan(scanId: number): StoredScan {
@@ -198,6 +213,21 @@ export const mockApi: Api = {
       const domain = findDomain(domainId)
       domain.verified = true
       return domain
+    }),
+
+  getAddresses: (domainId) => delay(() => addressesOf(findDomain(domainId))),
+
+  setPortScanAddresses: (domainId, ips) =>
+    delay(() => {
+      const domain = findDomain(domainId)
+      if (!domain.verified) {
+        throw new ApiError(403, `Verify that you control ${domain.name} before approving addresses for a port scan.`)
+      }
+      const found = new Set(discoveredAddresses(domain).map((a) => a.ip))
+      const unknown = ips.find((ip) => !found.has(ip))
+      if (unknown) throw new ApiError(422, `${unknown} was not found for ${domain.name} in the latest scan.`)
+      domain.port_scan_ips = [...new Set(ips)]
+      return addressesOf(domain)
     }),
 
   startScan: (domainId) =>

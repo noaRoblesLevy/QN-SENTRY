@@ -11,11 +11,20 @@ export function mockVerificationRecord(domain: string): string {
 }
 
 function verifiedDomain(name: string) {
-  return { permission_confirmed: true, verified: true, verification_record: mockVerificationRecord(name) }
+  return { permission_confirmed: true, verified: true, verification_record: mockVerificationRecord(name), port_scan_ips: [] }
 }
 
 export function unverifiedDomain(name: string) {
-  return { permission_confirmed: true, verified: false, verification_record: mockVerificationRecord(name) }
+  return { permission_confirmed: true, verified: false, verification_record: mockVerificationRecord(name), port_scan_ips: [] }
+}
+
+/** The addresses a scan finds for a domain (Attack Surface, #4): a server of the company
+ * itself, and a shared hosting address that must not get a port scan (like Vercel's) */
+export function mockAddresses(domain: string): { ip: string; hosts: string[] }[] {
+  return [
+    { ip: '203.0.113.10', hosts: [`dev.${domain}`] },
+    { ip: '76.76.21.21', hosts: [domain, `www.${domain}`] },
+  ]
 }
 
 // Fake data until the API is available.

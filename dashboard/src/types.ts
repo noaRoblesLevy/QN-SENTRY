@@ -32,6 +32,8 @@ export type Domain = {
   verified: boolean
   // The TXT record that proves ownership, e.g. "qn-sentry-verify=3f9a..."
   verification_record: string
+  // Addresses the user confirmed may get a port scan (#81)
+  port_scan_ips: string[]
   // Only included by GET /api/clients/{id}, newest first
   scans?: ScanSummary[]
 }
@@ -70,4 +72,13 @@ export type Finding = {
   asset: string
   details: Record<string, unknown>
   created_at: string
+}
+
+/** An address of a domain's hosts, and whether it may get a port scan (#81) */
+export type Address = {
+  ip: string
+  // Host names that resolved to it in the latest scan; [] for an approved address the
+  // latest scan did not see anymore
+  hosts: string[]
+  approved: boolean
 }
