@@ -129,6 +129,22 @@ def test_katana_never_follows_redirects_and_reports_all_of_them(monkeypatch):
     assert "-disable-unique-filter" in commands[0]
 
 
+def test_katana_never_checks_for_updates(monkeypatch):
+    # A hanging update check made the whole crawl time out (#76)
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return crawler.subprocess.CompletedProcess(command, 0, entry(SITE), "")
+
+    monkeypatch.setattr(crawler.shutil, "which", lambda name: "/usr/local/bin/katana")
+    monkeypatch.setattr(crawler.subprocess, "run", run)
+
+    crawler.crawl([SITE])
+
+    assert "-disable-update-check" in commands[0]
+
+
 def test_a_redirect_within_the_site_is_crawled_in_a_next_round(monkeypatch):
     runs = fake_katana(
         monkeypatch,
