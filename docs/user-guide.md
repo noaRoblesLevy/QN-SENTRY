@@ -19,12 +19,21 @@ How to assess a company with QN-Sentry: add it as a client, add its domain, run 
 
 1. On the **Clients** page, type the client's name under **Add a client** and click **Add client**.
 2. Click the client in the list to open its page.
-3. Under **Add a domain**, type the domain without `https://` or a path, e.g. `badsecurityinc.be`, and click **Add domain**.
+3. Under **Add a domain**, type the domain without `https://` or a path, e.g. `badsecurityinc.be`, tick **I own this domain or have written permission to scan it.** and click **Add domain**.
+4. **Prove that you control the domain.** Under the domain the dashboard shows a TXT record, e.g. `qn-sentry-verify=2d0a9cfec5a8809343668cb8a658c897`. Click **Copy**, add it as a TXT record to the domain at its DNS provider (one.com for `badsecurityinc.be`), wait a few minutes and click **Verify**. The **Ownership** column then says **Verified** and **Run scan** becomes available.
+
+The record is checked again at **every scan**. Removing it withdraws the permission: the next scan is refused and the domain shows the verification step again. Keep the record as long as the domain may be scanned.
+
+A domain added before this check existed shows **Confirm permission** first; click it to confirm, then verify as above.
 
 | Message | What it means |
 |---|---|
 | `Enter a valid domain name, e.g. example.be` | Only the domain name, in letters, digits, hyphens and dots, e.g. `badsecurityinc.be` |
 | `badsecurityinc.be is already added.` | The domain already belongs to a client (this one or another). Open that client instead. |
+| `Confirm that you own this domain or have written permission to scan it.` | Tick the confirmation before adding the domain |
+| `The TXT record ... was not found on ...` | The record is not visible in DNS yet: check it at the DNS provider and try again in a few minutes |
+| `The TXT record ... is no longer on ..., so the permission to scan it is withdrawn.` | The record was removed. Add it again and click **Verify** |
+| `The DNS records of ... could not be looked up. Try again in a moment.` | A DNS problem, not a missing record: nothing changed, try again |
 
 A client can have several domains (e.g. a `.be` and a `.com`); each domain is scanned separately.
 
