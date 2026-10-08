@@ -25,6 +25,12 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
         pass
     finally:
         writer.close()
+        # Wait until the connection is closed, as the asyncio documentation recommends;
+        # otherwise Python can warn about unclosed transports under load
+        try:
+            await writer.wait_closed()
+        except ConnectionError:
+            pass
 
 
 async def main() -> None:

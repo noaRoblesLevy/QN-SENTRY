@@ -1,6 +1,11 @@
 {
 	# The admin API is not needed on the test server
 	admin off
+	# nginx 1.18 has no HTTP/3: Caddy's "Alt-Svc: h3" header would show that the Server
+	# header is fake, so the decoy only speaks HTTP/1.1 and HTTP/2
+	servers {
+		protocols h1 h2
+	}
 }
 
 {$STAGING_ADDRESS} {
