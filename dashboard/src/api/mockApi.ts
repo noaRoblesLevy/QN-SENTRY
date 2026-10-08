@@ -1,7 +1,7 @@
 import type { Client, Domain, Finding, ModuleName, ModuleRun, Scan, ScanStatus, ScanSummary } from '../types'
 import { MODULES } from '../lib/labels'
 import { ApiError, type Api } from './api'
-import { failingModule, findingTemplates, unverifiedDomain, mockClients, mockScanHistory } from './mockData'
+import { failingModule, findingTemplates, moduleWarnings, unverifiedDomain, mockClients, mockScanHistory } from './mockData'
 
 // An in-memory imitation of the backend. A scan waits in the queue briefly and
 // then runs the four modules one after another, like the Celery worker will.
@@ -76,15 +76,16 @@ function progress(scan: StoredScan, now = Date.now()) {
   const current = elapsed < QUEUE_MS ? -1 : Math.floor((elapsed - QUEUE_MS) / MODULE_MS)
   const finishedAt = (index: number) => new Date(scan.startedAt + QUEUE_MS + (index + 1) * MODULE_MS).toISOString()
 
+  const warnings = moduleWarnings(domain.name)
   const modules: ModuleRun[] = MODULES.map((module, index) => {
     const fails = failing?.module === module
     const count = scan.findings.filter((f) => f.module === module).length
     if (index < current) {
       return fails
-        ? { module, status: 'failed', finding_count: 0, error: failing.error }
-        : { module, status: 'completed', finding_count: count, error: null }
+        ? { module, status: 'failed', finding_count: 0, error: failing.error, warnings: [] }
+        : { module, status: 'completed', finding_count: count, error: null, warnings: warnings[module] ?? [] }
     }
-    return { module, status: index === current ? 'running' : 'pending', finding_count: 0, error: null }
+    return { module, status: index === current ? 'running' : 'pending', finding_count: 0, error: null, warnings: [] }
   })
 
   let status: ScanStatus

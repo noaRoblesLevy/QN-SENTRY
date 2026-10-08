@@ -15,3 +15,9 @@
   margin: var(--space-1) 0 0;
   color: var(--ink-muted);
 }
+
+.module-warnings {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  color: var(--ink-muted);
+}

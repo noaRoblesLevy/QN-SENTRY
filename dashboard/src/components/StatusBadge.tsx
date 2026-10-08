@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
 import { CircleCheck, CircleDashed, CircleX, Clock, TriangleAlert } from 'lucide-react'
 import type { ModuleStatus, ScanStatus } from '../types'
-import { MODULE_STATUS_LABELS, SCAN_STATUS_LABELS } from '../lib/labels'
+import { COMPLETED_WITH_WARNINGS, MODULE_STATUS_LABELS, SCAN_STATUS_LABELS } from '../lib/labels'
 import Spinner from './Spinner'
 import './StatusBadge.css'
 
-type StatusBadgeProps = { kind: 'scan'; status: ScanStatus } | { kind: 'module'; status: ModuleStatus }
+type StatusBadgeProps =
+  | { kind: 'scan'; status: ScanStatus }
+  | { kind: 'module'; status: ModuleStatus; hasWarnings?: boolean }
 
 const ICON = { size: 16, strokeWidth: 1.5, 'aria-hidden': true } as const
 
@@ -20,8 +22,14 @@ const APPEARANCE: Record<ScanStatus | ModuleStatus, { icon: ReactNode; tone: 'mu
 }
 
 function StatusBadge(props: StatusBadgeProps) {
-  const label = props.kind === 'scan' ? SCAN_STATUS_LABELS[props.status] : MODULE_STATUS_LABELS[props.status]
-  const { icon, tone } = APPEARANCE[props.status]
+  const withWarnings = props.kind === 'module' && props.status === 'completed' && props.hasWarnings
+  const label = withWarnings
+    ? COMPLETED_WITH_WARNINGS
+    : props.kind === 'scan'
+      ? SCAN_STATUS_LABELS[props.status]
+      : MODULE_STATUS_LABELS[props.status]
+  // Completed with warnings looks like a partial scan: done, but something needs a look
+  const { icon, tone } = withWarnings ? APPEARANCE.partial : APPEARANCE[props.status]
 
   return (
     <span className={`status-badge status-${tone}`}>
