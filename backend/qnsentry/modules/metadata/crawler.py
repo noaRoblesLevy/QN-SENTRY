@@ -124,6 +124,10 @@ def _run_katana(urls: list[str], seconds: float) -> subprocess.CompletedProcess:
         # katana drops responses with the same content as an earlier one. Redirects all have
         # the same (empty) body, so without this only one of them would be reported.
         "-disable-unique-filter",
+        # katana checks GitHub for a newer version at every start; when that check hangs, the
+        # crawl hangs with it and the module fails (#76). It also means a scan contacts only
+        # the client's website (legal framework 5.2), and the image pins the version anyway.
+        "-disable-update-check",
         "-depth", str(MAX_DEPTH),
         "-crawl-duration", f"{max(1, int(seconds))}s",
         "-rate-limit", str(REQUESTS_PER_SECOND),
