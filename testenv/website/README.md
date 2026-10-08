@@ -11,6 +11,8 @@ Every page shows a banner that the company is fictitious and has `noindex`, so s
 | `index.html`, `team.html`, `contact.html`, `downloads.html`, `investors.html` | The site (plain HTML and CSS, no build step) |
 | `files/` | 12 public documents with planted metadata |
 | `tools/generate_documents.py` | Generates the documents; every planted value is defined there |
+
+The expected findings of a scan, with their severity, are in [`testenv/detection-rate/expected-findings.json`](../detection-rate/expected-findings.json): the single source used to measure the detection rate (#47).
 | `../lookalike/index.html` | The page on the lookalike domain `badsecuritylnc.be` |
 
 Regenerate the documents after changing the planted values:

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # 6 seconds fits the smallest plan (10 requests per minute); lower it for a bigger plan.
     hibp_api_key: str | None = None
     hibp_min_interval_seconds: float = 6.0
+    # Cert Spotter (#10): without a key only for personal or evaluation use, with a small hourly limit
+    certspotter_api_key: str | None = None
 
     @property
     def database_url(self) -> URL:
