@@ -339,7 +339,8 @@ def test_failed_pages_on_a_reachable_site_are_counted_in_one_warning(monkeypatch
 
 def test_crawl_that_hits_its_time_limit_is_a_warning(monkeypatch):
     fake_katana(monkeypatch, stdout=f'{{"request": {{"endpoint": "{SITE}"}}}}\n')
-    clock = iter([0.0, float(crawler.CRAWL_SECONDS)])
+    # Start of the crawl, before the first katana run, after the crawl
+    clock = iter([0.0, 0.0, float(crawler.CRAWL_SECONDS + crawler.STARTUP_MARGIN)])
     monkeypatch.setattr(crawler.time, "monotonic", lambda: next(clock))
     warnings = []
 
@@ -349,6 +350,18 @@ def test_crawl_that_hits_its_time_limit_is_a_warning(monkeypatch):
         f"The crawl stopped at its limit of {crawler.CRAWL_SECONDS} s, "
         "so documents deeper in the website may have been missed"
     ]
+
+
+def test_crawl_that_ends_just_after_the_limit_because_of_start_up_is_no_warning(monkeypatch):
+    # katana's start-up counts in the measured time: 121 s is a crawl that ended on its own
+    fake_katana(monkeypatch, stdout=f'{{"request": {{"endpoint": "{SITE}"}}}}\n')
+    clock = iter([0.0, 0.0, float(crawler.CRAWL_SECONDS + 1)])
+    monkeypatch.setattr(crawler.time, "monotonic", lambda: next(clock))
+    warnings = []
+
+    crawler.crawl([SITE], warn=warnings.append)
+
+    assert warnings == []
 
 
 def test_complete_crawl_has_no_warnings(monkeypatch):
