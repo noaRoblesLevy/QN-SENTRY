@@ -19,7 +19,8 @@
     {"id": "md-annual-report", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/annual-report-2025.pdf", "severity": "low", "planted": "Pieter Mertens, only found in metadata"},
     {"id": "md-terms", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/terms-and-conditions.pdf", "severity": "low", "planted": "Username jpeeters as author, Word 2010"},
     {"id": "md-order-form", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/signed-order-form-example.pdf", "severity": "low", "planted": "Scanner KONICA MINOLTA bizhub C308, device BSI-MFP-2F"},
-    {"id": "md-email-convention", "module": "metadata", "type": "email_convention", "asset": "badsecurityinc.be", "severity": "low", "planted": "Team page addresses follow first.last", "pending": "Metadata module: email addresses and convention (#8)"},
+    {"id": "md-email-addresses", "module": "metadata", "type": "email_address", "asset": "badsecurityinc.be", "severity": "info", "planted": "Addresses on the team and contact pages"},
+    {"id": "md-email-convention", "module": "metadata", "type": "email_convention", "asset": "badsecurityinc.be", "severity": "low", "planted": "Team page addresses follow first.last"},
 
     {"id": "ph-lookalike", "module": "phishing", "type": "lookalike_domain", "asset": "badsecuritylnc.be", "severity": "high", "planted": "Homoglyph lookalike with an MX record"},
     {"id": "ph-certificate", "module": "phishing", "type": "lookalike_certificate", "asset": "badsecuritylnc.be", "severity": "high", "planted": "Let's Encrypt certificate through Vercel"},
@@ -27,11 +28,11 @@
     {"id": "ph-dmarc", "module": "phishing", "type": "email_security", "asset": "badsecurityinc.be", "details": {"check": "dmarc"}, "severity": "high", "planted": "v=DMARC1; p=none"},
     {"id": "ph-dkim", "module": "phishing", "type": "email_security", "asset": "badsecurityinc.be", "details": {"check": "dkim"}, "severity": "low", "planted": "No DKIM key (not planted on purpose, but expected)"},
 
-    {"id": "br-jan", "module": "breach", "type": "breached_email", "asset": "jan.peeters@badsecurityinc.be", "severity": "high", "planted": "ExampleShop (passwords), FictionalBikeForum", "pending": "Addresses from the website come from the Metadata module (#8)"},
-    {"id": "br-lars", "module": "breach", "type": "breached_email", "asset": "lars.janssens@badsecurityinc.be", "severity": "high", "planted": "DemoGameCloud (passwords)", "pending": "Addresses from the website come from the Metadata module (#8)"},
-    {"id": "br-sofie", "module": "breach", "type": "breached_email", "asset": "sofie.maes@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub", "pending": "Addresses from the website come from the Metadata module (#8)"},
-    {"id": "br-lotte", "module": "breach", "type": "breached_email", "asset": "lotte.vandenbroeck@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub", "pending": "Addresses from the website come from the Metadata module (#8)"},
-    {"id": "br-info", "module": "breach", "type": "breached_email", "asset": "info@badsecurityinc.be", "severity": "low", "planted": "PretendSpamList (address only)", "pending": "Addresses from the website come from the Metadata module (#8)"},
+    {"id": "br-jan", "module": "breach", "type": "breached_email", "asset": "jan.peeters@badsecurityinc.be", "severity": "high", "planted": "ExampleShop (passwords), FictionalBikeForum"},
+    {"id": "br-lars", "module": "breach", "type": "breached_email", "asset": "lars.janssens@badsecurityinc.be", "severity": "high", "planted": "DemoGameCloud (passwords)"},
+    {"id": "br-sofie", "module": "breach", "type": "breached_email", "asset": "sofie.maes@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub"},
+    {"id": "br-lotte", "module": "breach", "type": "breached_email", "asset": "lotte.vandenbroeck@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub"},
+    {"id": "br-info", "module": "breach", "type": "breached_email", "asset": "info@badsecurityinc.be", "severity": "low", "planted": "PretendSpamList (address only)"},
     {"id": "br-pieter", "module": "breach", "type": "breached_email", "asset": "pieter.mertens@badsecurityinc.be", "severity": "high", "planted": "Derived from the author name in the annual report", "pending": "Deriving addresses from names (#12)"}
   ],
   "must_not_find": [
