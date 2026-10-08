@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from qnsentry.db.models import ModuleStatus, ScanStatus, Severity
 
@@ -29,7 +29,9 @@ class DomainCreate(BaseModel):
     name: str
     # The user confirms they own the domain or have written permission to scan it (#3)
     # validate_default: the check must also run when the field is left out
-    permission_confirmed: bool = Field(False, validate_default=True)
+    # StrictBool: a confirmation with legal weight only counts as the JSON value true,
+    # not as "yes" or 1
+    permission_confirmed: StrictBool = Field(False, validate_default=True)
 
     @field_validator("permission_confirmed")
     @classmethod

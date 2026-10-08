@@ -138,3 +138,46 @@ def test_client_page_shows_status_and_record_per_domain(api):
 @pytest.mark.parametrize("path", ["permission", "verify"])
 def test_unknown_domain_is_404(api, path):
     assert api.post(f"/api/domains/999/{path}").status_code == 404
+
+
+# ---------- Review of #72 ----------
+
+
+def verified_domain(api, monkeypatch):
+    domain = add_domain(api, add_client(api), permission_confirmed=True).json()
+    fake_dns(monkeypatch, records=[domain["verification_record"]])
+    api.post(f"/api/domains/{domain['id']}/verify")
+    return domain
+
+
+def test_a_removed_record_withdraws_the_permission(api, monkeypatch, queued):
+    # The client removes the TXT record: from then on its domain is not scanned anymore
+    domain = verified_domain(api, monkeypatch)
+    fake_dns(monkeypatch, records=["v=spf1 +all"])
+
+    response = api.post(f"/api/domains/{domain['id']}/scans")
+
+    assert response.status_code == 403
+    assert "is no longer on badsecurityinc.be" in response.json()["detail"]
+    assert queued == []
+    # The dashboard shows the verification step again
+    [listed] = api.get(f"/api/clients/{domain['id']}").json()["domains"]
+    assert listed["verified"] is False
+
+
+def test_a_failed_lookup_at_scan_time_starts_no_scan(api, monkeypatch, queued):
+    domain = verified_domain(api, monkeypatch)
+    fake_dns(monkeypatch, error=verification.VerificationLookupFailed("badsecurityinc.be: Timeout"))
+
+    response = api.post(f"/api/domains/{domain['id']}/scans")
+
+    assert response.status_code == 503
+    assert queued == []
+    # A DNS problem is not a withdrawn permission: the domain stays verified
+    [listed] = api.get(f"/api/clients/{domain['id']}").json()["domains"]
+    assert listed["verified"] is True
+
+
+@pytest.mark.parametrize("value", ["yes", 1, "true"])
+def test_only_the_json_value_true_confirms_permission(api, value):
+    assert add_domain(api, add_client(api), permission_confirmed=value).status_code == 422

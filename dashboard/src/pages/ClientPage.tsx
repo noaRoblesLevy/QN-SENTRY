@@ -80,6 +80,8 @@ function ClientView({ clientId }: { clientId: number }) {
     } catch (err) {
       setScanError(`Could not start a scan of ${domain.name}: ${err instanceof Error ? err.message : 'unknown error'}`)
       setStartingDomainId(undefined)
+      // A withdrawn verification (the TXT record was removed) shows the verification step again
+      reload()
     }
   }
 

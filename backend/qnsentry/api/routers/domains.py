@@ -23,6 +23,23 @@ def get_domain_or_404(db: Session, domain_id: int) -> Domain:
     return domain
 
 
+def record_present(domain: Domain) -> bool:
+    """True when the domain's TXT record is in its DNS now.
+
+    A failed lookup is not "absent": it raises a 503, so a DNS problem never looks like a
+    withdrawn permission and never lets a scan through either.
+    """
+    try:
+        records = verification.txt_records(domain.name)
+    except verification.VerificationLookupFailed as error:
+        logger.warning("Verification lookup failed: %s", error)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"The DNS records of {domain.name} could not be looked up. Try again in a moment.",
+        ) from error
+    return verification.has_verification_record(records, domain.verification_record)
+
+
 @router.post("/domains/{domain_id}/permission", response_model=DomainOut)
 def confirm_permission(domain_id: int, db: Session = Depends(get_db)) -> Domain:
     """Record that the user confirmed they may scan the domain.
@@ -45,21 +62,11 @@ def verify_domain(domain_id: int, db: Session = Depends(get_db)) -> Domain:
     if domain.verified_at is not None:
         return domain
 
-    expected = domain.verification_record
-    try:
-        records = verification.txt_records(domain.name)
-    except verification.VerificationLookupFailed as error:
-        logger.warning("Verification lookup failed: %s", error)
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            f"The DNS records of {domain.name} could not be looked up. Try again in a moment.",
-        ) from error
-
-    if not verification.has_verification_record(records, expected):
+    if not record_present(domain):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"The TXT record {expected} was not found on {domain.name}. Add it to the domain's DNS "
-            "and try again; a new record can take a few minutes to become visible.",
+            f"The TXT record {domain.verification_record} was not found on {domain.name}. Add it to "
+            "the domain's DNS and try again; a new record can take a few minutes to become visible.",
         )
 
     domain.verified_at = datetime.now(UTC)

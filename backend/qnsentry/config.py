@@ -1,5 +1,5 @@
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
 
@@ -9,6 +9,10 @@ EXAMPLE_SECRET = "change-me-to-at-least-32-random-characters"
 
 class Settings(BaseSettings):
     """Configuration read from environment variables (see .env.example)."""
+
+    # A validation error must not print the value: a secret that is one character too
+    # short would otherwise end up literally in the container logs
+    model_config = SettingsConfigDict(hide_input_in_errors=True)
 
     postgres_user: str
     postgres_password: str

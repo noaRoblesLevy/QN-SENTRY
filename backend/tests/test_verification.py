@@ -104,3 +104,15 @@ def test_a_failed_lookup_is_not_treated_as_missing(monkeypatch):
 def test_a_weak_secret_is_refused(secret):
     with pytest.raises(ValidationError, match="domain_verification_secret"):
         Settings(postgres_user="u", postgres_password="p", postgres_db="d", domain_verification_secret=secret)
+
+
+def test_a_refused_secret_is_not_printed_in_the_error():
+    # The error ends up in the container logs; a real secret that is one character too short
+    # must not appear there
+    secret = "almost-a-real-secret-but-too-short"[:31]
+
+    with pytest.raises(ValidationError) as error:
+        Settings(postgres_user="u", postgres_password="p", postgres_db="d", domain_verification_secret=secret)
+
+    assert "domain_verification_secret" in str(error.value)
+    assert secret not in str(error.value)
