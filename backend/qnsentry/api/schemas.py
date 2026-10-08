@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from qnsentry.db.models import ModuleStatus, ScanStatus, Severity
 
@@ -27,6 +27,18 @@ class DomainCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str
+    # The user confirms they own the domain or have written permission to scan it (#3)
+    # validate_default: the check must also run when the field is left out
+    # StrictBool: a confirmation with legal weight only counts as the JSON value true,
+    # not as "yes" or 1
+    permission_confirmed: StrictBool = Field(False, validate_default=True)
+
+    @field_validator("permission_confirmed")
+    @classmethod
+    def require_permission(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("Confirm that you own this domain or have written permission to scan it.")
+        return value
 
     @field_validator("name")
     @classmethod
@@ -46,6 +58,11 @@ class ScanSummary(BaseModel):
     id: int
     status: ScanStatus
     created_at: datetime
+    # Risk score (#19); null while the scan runs or when it failed
+    risk_score: int | None = None
+    risk_level: str | None = None
+    # False when the score comes from a partial scan (a module failed)
+    risk_complete: bool | None = None
 
 
 class DomainOut(BaseModel):
@@ -53,6 +70,11 @@ class DomainOut(BaseModel):
 
     id: int
     name: str
+    # Permission (#3) and ownership (#48): a scan needs both
+    permission_confirmed: bool
+    verified: bool
+    # The TXT record to add to the domain, e.g. "qn-sentry-verify=3f9a..."
+    verification_record: str
 
 
 class DomainWithScans(DomainOut):
@@ -65,6 +87,11 @@ class ClientOut(BaseModel):
     id: int
     name: str
     domains: list[DomainOut]
+    # Risk of the riskiest domain (#19); null when no domain has a finished scan
+    risk_score: int | None = None
+    risk_level: str | None = None
+    # False when the score comes from a partial scan (a module failed)
+    risk_complete: bool | None = None
 
 
 class ClientDetail(ClientOut):
@@ -88,6 +115,11 @@ class ScanOut(BaseModel):
     status: ScanStatus
     created_at: datetime
     modules: list[ModuleRunOut]
+    # Risk score (#19); null while the scan runs or when it failed
+    risk_score: int | None = None
+    risk_level: str | None = None
+    # False when the score comes from a partial scan (a module failed)
+    risk_complete: bool | None = None
 
 
 class FindingOut(BaseModel):

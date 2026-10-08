@@ -8,7 +8,17 @@ export type ScanStatus = 'queued' | 'running' | 'completed' | 'partial' | 'faile
 
 export type ModuleStatus = 'pending' | 'running' | 'completed' | 'failed'
 
-export type ScanSummary = {
+// Risk score (data contract 10.7): null while a scan runs, when it failed, or without scans
+export type RiskLevel = 'low' | 'moderate' | 'high' | 'very_high'
+
+export type Risk = {
+  risk_score: number | null
+  risk_level: RiskLevel | null
+  // false when the score comes from a partial scan (a module failed)
+  risk_complete: boolean | null
+}
+
+export type ScanSummary = Risk & {
   id: number
   status: ScanStatus
   created_at: string
@@ -17,11 +27,16 @@ export type ScanSummary = {
 export type Domain = {
   id: number
   name: string
+  // A scan needs both (#3, #48)
+  permission_confirmed: boolean
+  verified: boolean
+  // The TXT record that proves ownership, e.g. "qn-sentry-verify=3f9a..."
+  verification_record: string
   // Only included by GET /api/clients/{id}, newest first
   scans?: ScanSummary[]
 }
 
-export type Client = {
+export type Client = Risk & {
   id: number
   name: string
   domains: Domain[]
@@ -37,7 +52,7 @@ export type ModuleRun = {
   warnings: string[]
 }
 
-export type Scan = {
+export type Scan = Risk & {
   id: number
   domain: string
   status: ScanStatus
