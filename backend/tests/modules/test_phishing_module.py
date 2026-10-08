@@ -1,7 +1,9 @@
 """The phishing module plugs into the worker through the Module interface."""
 
 import pytest
+from pydantic import ValidationError
 
+from qnsentry.config import Settings, settings
 from qnsentry.modules import MODULES, MODULES_BY_NAME
 from qnsentry.modules.base import ScanContext
 from qnsentry.modules.phishing import PhishingModule, lookalikes
@@ -51,6 +53,77 @@ def test_run_runs_every_check_with_the_configured_resolver(monkeypatch):
         ("certificates", ["badsecuritylnc.be"]),
         ("email", "badsecurityinc.be", ["1.1.1.1"]),
     ]
+
+
+def stub_checks(monkeypatch, calls):
+    monkeypatch.setattr("qnsentry.modules.phishing.find_lookalike_domains", fake_check("lookalikes", calls, [LOOKALIKE]))
+    monkeypatch.setattr("qnsentry.modules.phishing.find_lookalike_certificates", fake_certificates(calls))
+    monkeypatch.setattr("qnsentry.modules.phishing.check_email_security", fake_check("email", calls))
+
+
+def test_the_dns_servers_setting_reaches_every_dns_check(monkeypatch):
+    # #80: the worker's module is created without nameservers and uses DNS_SERVERS
+    calls, checked = [], []
+    stub_checks(monkeypatch, calls)
+    monkeypatch.setattr("qnsentry.modules.phishing.check_resolver", checked.append)
+    monkeypatch.setattr(settings, "dns_servers", "1.1.1.1,9.9.9.9")
+
+    MODULES_BY_NAME["phishing"].run(ScanContext(domain="badsecurityinc.be"))
+
+    assert checked == [["1.1.1.1", "9.9.9.9"]]
+    assert ("lookalikes", "badsecurityinc.be", ["1.1.1.1", "9.9.9.9"]) in calls
+    assert ("email", "badsecurityinc.be", ["1.1.1.1", "9.9.9.9"]) in calls
+
+
+def test_an_empty_dns_servers_setting_uses_the_container_dns(monkeypatch):
+    calls = []
+    stub_checks(monkeypatch, calls)
+    monkeypatch.setattr(settings, "dns_servers", "")
+
+    PhishingModule().run(ScanContext(domain="badsecurityinc.be"))
+
+    assert ("lookalikes", "badsecurityinc.be", None) in calls
+    assert ("email", "badsecurityinc.be", None) in calls
+
+
+def test_dns_servers_a_network_blocks_fall_back_to_the_container_dns(monkeypatch):
+    # Some networks block DNS to outside servers: then the container's DNS, not a failed module
+    calls = []
+    stub_checks(monkeypatch, calls)
+    monkeypatch.setattr(settings, "dns_servers", "1.1.1.1")
+
+    def blocked(nameservers):
+        raise RuntimeError("The DNS resolver 1.1.1.1 does not resolve names that must exist (LifetimeTimeout)")
+
+    monkeypatch.setattr("qnsentry.modules.phishing.check_resolver", blocked)
+    context = ScanContext(domain="badsecurityinc.be")
+
+    assert PhishingModule().run(context) == [LOOKALIKE]
+    assert ("lookalikes", "badsecurityinc.be", None) in calls
+    assert context.warnings == []
+
+
+def make_settings(**values) -> Settings:
+    return Settings(postgres_user="u", postgres_password="p", postgres_db="d", domain_verification_secret="s" * 40, **values)
+
+
+def test_dns_servers_default_to_public_resolvers(monkeypatch):
+    monkeypatch.delenv("DNS_SERVERS")
+    assert make_settings().nameservers == ["1.1.1.1", "8.8.8.8", "9.9.9.9"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(" 1.1.1.1 , 2606:4700:4700::1111 ", ["1.1.1.1", "2606:4700:4700::1111"]), ("", None), (" , ", None)],
+)
+def test_dns_servers_are_normalised(value, expected):
+    assert make_settings(dns_servers=value).nameservers == expected
+
+
+def test_a_dns_server_that_is_not_an_ip_address_is_refused():
+    # A typo stops the worker with a clear error instead of failing lookups during a scan
+    with pytest.raises(ValidationError, match="dns.google in DNS_SERVERS is not an IP address"):
+        make_settings(dns_servers="1.1.1.1,dns.google")
 
 
 def test_a_failing_check_keeps_the_findings_of_the_others(monkeypatch):

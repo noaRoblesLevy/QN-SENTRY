@@ -102,6 +102,7 @@ All settings are environment variables in `.env`. The `api`, `worker`, `beat` an
 | `HIBP_API_KEY` | none | Have I Been Pwned API key, required for `BREACH_SOURCE=hibp`; never commit it |
 | `HIBP_MIN_INTERVAL_SECONDS` | `6` | Pause between Have I Been Pwned requests; 6 fits the smallest plan (10 per minute). The pause is per scan and the worker runs two scans at once: use 12 when two HIBP scans can run together |
 | `CERTSPOTTER_API_KEY` | none | Cert Spotter API key for the certificate check of lookalike domains. Without a key the service is for personal or evaluation use only, with a small hourly limit; a real deployment needs one |
+| `DNS_SERVERS` | `1.1.1.1,8.8.8.8,9.9.9.9` | DNS servers for the phishing lookups (lookalike domains, SPF, DMARC, DKIM), comma-separated IP addresses. Empty = the container's DNS. When a network blocks these servers, the module uses the container's DNS instead |
 
 Rules for `.env`:
 
