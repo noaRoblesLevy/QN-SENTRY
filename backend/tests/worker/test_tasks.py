@@ -111,3 +111,24 @@ def test_many_warnings_are_summarised():
 def test_up_to_the_limit_nothing_is_summarised(count):
     warnings = [f"w{i}" for i in range(count)]
     assert tasks.limit_warnings(warnings) == warnings
+
+
+def test_the_approved_addresses_reach_the_modules(monkeypatch):
+    # The worker reads the approvals of #81 from the domain; modules never read the database
+    seen = []
+
+    class Recorder(FakeModule):
+        def run(self, context):
+            seen.append(list(context.port_scan_ips))
+            return []
+
+    monkeypatch.setattr(tasks, "MODULES_BY_NAME", {"a": Recorder("a")})
+    domain = models.Domain(name="badsecurityinc.be", port_scan_approvals=[models.PortScanApproval(ip="192.0.2.10")])
+    scan = models.Scan(id=1, domain=domain, module_runs=[models.ModuleRun(module="a", status=ModuleStatus.PENDING)])
+
+    tasks.run_modules(FakeSession(), scan)
+
+    assert seen == [["192.0.2.10"]]
+    # Stored with the scan: which addresses this scan was allowed to port-scan
+    assert scan.context["port_scan_ips"] == ["192.0.2.10"]
+
