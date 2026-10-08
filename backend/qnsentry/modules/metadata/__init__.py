@@ -6,8 +6,8 @@
    internal paths and printer or scanner names
 4. One finding per document that reveals something; author names go into the scan
    context for the Breach module (#12)
-
-Email addresses and the naming convention are added in #8.
+5. The email addresses published on the pages, and the naming convention they follow
+   (#8, see emails.py); both go into the scan context for the Breach module
 """
 
 import tempfile
@@ -19,6 +19,12 @@ from qnsentry.db.models import Severity
 from qnsentry.modules.base import Finding, Module, ScanContext
 from qnsentry.modules.metadata.crawler import crawl, document_urls, start_urls
 from qnsentry.modules.metadata.documents import download_documents
+from qnsentry.modules.metadata.emails import (
+    collect_emails,
+    detect_convention,
+    to_address_finding,
+    to_convention_finding,
+)
 from qnsentry.modules.metadata.extract import DocumentMetadata, interpret, read_metadata
 
 MODULE = "metadata"
@@ -33,14 +39,16 @@ class MetadataModule(Module):
 
 
 def analyse_site(urls: list[str], context: ScanContext) -> list[Finding]:
-    """Crawl `urls`, analyse the documents found there and add the author names to `context`."""
+    """Crawl `urls`, analyse the documents and email addresses found there, and add the
+    author names, addresses and naming convention to `context`."""
     allowed_hosts = {urlparse(url).hostname for url in urls}
-    documents = document_urls(crawl(urls), allowed_hosts)
+    found = crawl(urls, warn=context.warn)
+    documents = document_urls(found, allowed_hosts)
 
     findings: list[Finding] = []
     # Documents are only kept while they are analysed (GDPR: nothing is stored)
     with tempfile.TemporaryDirectory(prefix="qnsentry-documents-") as folder:
-        files = download_documents(documents, Path(folder), allowed_hosts)
+        files = download_documents(documents, Path(folder), allowed_hosts, warn=context.warn)
         tags_per_file = read_metadata(list(files.values()))
 
         for url, path in files.items():
@@ -53,6 +61,21 @@ def analyse_site(urls: list[str], context: ScanContext) -> list[Finding]:
                     context.person_names.append(person)
             if not meta.is_empty():
                 findings.append(to_finding(url, meta))
+
+    # The command-line tool can crawl a start URL without a domain: use its host then
+    domain = context.domain or (urlparse(urls[0]).hostname or "").removeprefix("www.")
+    emails = collect_emails(found, allowed_hosts, domain, warn=context.warn)
+    for address in emails:
+        if address not in context.emails:
+            context.emails.append(address)
+    if emails:
+        findings.append(to_address_finding(emails, domain))
+
+    convention = detect_convention(context.person_names, list(emails), domain)
+    if convention:
+        context.email_convention = convention.convention
+        context.last_name_style = convention.last_name_style
+        findings.append(to_convention_finding(convention, domain, names_checked=len(context.person_names)))
     return findings
 
 

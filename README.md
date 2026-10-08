@@ -1,5 +1,7 @@
 # QN-Sentry
 
+[![CI](https://github.com/noaRoblesLevy/QN-SENTRY/actions/workflows/ci.yml/badge.svg)](https://github.com/noaRoblesLevy/QN-SENTRY/actions/workflows/ci.yml)
+
 **An OSINT platform for digital risk assessment for SMEs.**
 
 Given a company domain, QN-Sentry performs an on-demand OSINT assessment of the organisation's external exposure and presents the results in a dashboard and report with a risk score. This way, an SME sees its attack surface from an attacker's perspective, before an attacker does.
@@ -64,7 +66,7 @@ On Linux, add `-u "$(id -u):$(id -g)"` instead of `-u root`, or the generated fi
 
 Always read the generated file before committing it: autogenerate can miss changes (a renamed column becomes a drop and an add) and writes the CHECK constraint of an enum column twice; remove those `sa.CheckConstraint` lines, the `sa.Enum` creates the constraint itself.
 
-Before merging a pull request that changes a model, check that the models and the migrations match (prints `No new upgrade operations detected`):
+CI runs this check on every pull request (see below). To run it yourself, e.g. before pushing (prints `No new upgrade operations detected`):
 
 ```bash
 docker compose run --rm migrate alembic check
@@ -78,7 +80,7 @@ The API and the worker no longer create tables themselves: when running them out
 
 1. `POST /api/domains/{id}/scans` stores a scan (`queued`) with one module run per module (`pending`) and puts a task in Redis. The API does not wait for the scan.
 2. A Celery worker picks up the task and runs the modules one after another, in the order of `MODULES` in `backend/qnsentry/modules/__init__.py`.
-3. For each module, the worker marks it `running`, calls `module.run(context)`, stores the returned findings and marks it `completed`. If a module raises an exception, it is marked `failed` with the error message and the next module still runs.
+3. For each module, the worker marks it `running`, calls `module.run(context)`, stores the returned findings and its warnings, and marks it `completed`. If a module raises an exception, it is marked `failed` with the error message and the next module still runs.
 4. The scan ends as `completed`, or `partial` when at least one module failed. The dashboard polls `GET /api/scans/{id}` to show the progress.
 
 ## Finding format
@@ -130,11 +132,23 @@ Rules (contract 10.3):
 
 - **Never write to the database.** Return the findings; the worker stores them. This keeps modules testable without a database.
 - **Share information through the context.** Read what earlier modules found (e.g. `context.person_names` from Metadata) and fill in what later modules need.
-- **Partial failure:** if part of the module fails but it still has useful results, catch the error, log a warning and return what you have.
+- **Partial failure:** if part of the module fails but it still has useful results, catch the error, call `context.warn("One readable sentence, with a count and without personal data")` and return what you have. The warning is shown with the module in the dashboard and the report.
 - **Total failure:** if the module cannot run at all (e.g. a tool is missing), raise an exception. The worker marks the module as `failed` and continues.
 - **External tools** (subfinder, nmap, dnstwist, ...) are installed in `backend/Dockerfile.worker`.
 
 To activate the module, replace its `PlaceholderModule` in `MODULES` in [`backend/qnsentry/modules/__init__.py`](backend/qnsentry/modules/__init__.py). Keep the order of the list: modules later in the list can use what earlier modules added to the context.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and every push to `main`; a pull request is only merged when all three jobs are green:
+
+| Job | What it checks |
+|---|---|
+| Backend tests and pyflakes | `pytest` and `pyflakes` in `backend/` on Python 3.13 |
+| Migrations match the models | all migrations on an empty PostgreSQL 17, then `alembic check`: fails when a model change has no migration |
+| Dashboard lint and build | `pnpm lint` and `pnpm build` in `dashboard/` |
+
+The jobs need no secrets: the database exists only during the job. The tests need no network either: DNS, HTTP and external tools are replaced by fakes or local servers.
 
 ## Documentation
 
