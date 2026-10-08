@@ -40,6 +40,8 @@ docker compose up -d --build
 
 The dashboard's nginx forwards `/api` to the `api` service, so the dashboard and the API share one address. For development with live reload, see [`dashboard/README.md`](dashboard/README.md).
 
+**Documentation:** [installation guide](docs/installation.md) (requirements, configuration, updating, ports) · [user guide](docs/user-guide.md) (clients, scans, findings, risk score, report) · [known issues and difficult points](docs/known-issues.md) · [project documentation](docs/README.md)
+
 ## Project structure
 
 ```
