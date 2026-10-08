@@ -29,7 +29,9 @@ Example of a complete finding:
   "severity": "high",
   "asset": "jan.peeters@badsecurityinc.be",
   "details": {
-    "origin": "derived from 'Jan Peeters' (first.last)",
+    "origin": "derived",
+    "derived_from": "Jan Peeters",
+    "convention": "first.last",
     "breaches": [
       { "name": "ExampleShop", "date": "2021-06-22", "data": ["Emails", "Passwords"] },
       { "name": "ExampleForum", "date": "2019-03-10", "data": ["Emails", "Usernames"] }
@@ -37,6 +39,8 @@ Example of a complete finding:
   }
 }
 ```
+
+For `breached_email`, `origin` is `"found publicly"` (the address is on the website) or `"derived"` (made from a name in document metadata with the company's convention, #12); a derived address also has `derived_from` and `convention`.
 
 ### 10.1.1 Finding Types
 
@@ -195,6 +199,7 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `POST` | `/api/domains/{id}/scans` | Start a scan for a domain |
 | `GET` | `/api/scans/{id}` | Get the scan status and the status per module |
 | `GET` | `/api/scans/{id}/findings` | Get the findings of a scan |
+| `GET` | `/api/scans/{id}/report.pdf` | Download the PDF summary report of a finished scan (#17) |
 
 Example response of `GET /api/scans/7`:
 
@@ -229,22 +234,22 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | Endpoint | Issue |
 |---|---|
 | Approve a domain on the target allowlist | #3 |
-| Download the PDF report of a scan | #17 |
 | Log in | #20 |
 
 ### 10.5.3 Request and Response Bodies
 
 | Endpoint | Request body | Success | Response |
 |---|---|---|---|
-| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`) |
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`), `risk_score`, `risk_level`, `risk_complete` (10.7) |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
-| `GET /api/clients/{id}` | | `200` | The client; every domain also has `scans` (`id`, `status`, `created_at`), newest first |
+| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level` and `risk_complete`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`), newest first |
 | `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be", "permission_confirmed": true}` | `201` | The new domain: `id`, `name`, `permission_confirmed` (`true`), `verified` (`false`), `verification_record` |
 | `POST /api/domains/{id}/permission` | | `200` | The domain with `permission_confirmed: true` |
 | `POST /api/domains/{id}/verify` | | `200` | The domain with `verified: true`; `409` when the record is not found, `503` when the DNS lookup failed |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
-| `GET /api/scans/{id}` | | `200` | See the example above |
+| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level` and `risk_complete` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
+| `GET /api/scans/{id}/report.pdf` | | `200` | `application/pdf`, as a download; `409` while the scan is `queued` or `running` |
 
 Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
 
@@ -277,3 +282,55 @@ The open questions of the first version were decided in #32:
 | Who writes `description` | Each module, following 10.1.2 |
 | Combined findings | The module decides within its own area, see 10.2 |
 | Partial failures of a module | Warnings per module run, see 10.3.1 |
+
+## 10.7 Risk Score
+
+One number from 0 to 100 that summarises a scan for management (#19). Agreed in the review of #53; the values live in one place (`backend/qnsentry/risk.py`).
+
+1. Every finding adds points by severity:
+
+| Severity | Points |
+|---|---|
+| `critical` | 25 |
+| `high` | 10 |
+| `medium` | 4 |
+| `low` | 1 |
+| `info` | 0 |
+
+2. `curve = 100 × (1 − e^(−points / 50))`, rounded.
+3. `score = max(curve, floor of the worst finding)`:
+
+| Worst finding | Floor |
+|---|---|
+| `critical` | 75 (very high) |
+| `high` | 50 (high) |
+| `medium` | 25 (moderate) |
+| `low`, `info` | 0 |
+
+The curve gives diminishing returns: the first serious findings raise the score the most, the score never exceeds 100, and adding a finding never lowers it. A plain sum would reach 100 after a few findings and stop telling anything apart; an average would drop when harmless findings are added.
+
+The floor makes the level match the worst finding: with the curve alone, one critical finding ("fix immediately", 10.2) would score 39 "moderate", and a manager who only reads the level would be misled. Above the floor the curve decides, so many findings still weigh more than one.
+
+| Score | Level (`risk_level`) |
+|---|---|
+| 0 to 24 | `low` |
+| 25 to 49 | `moderate` |
+| 50 to 74 | `high` |
+| 75 to 100 | `very_high` |
+
+| Example | Points | Score |
+|---|---|---|
+| Only `info` findings | 0 | 0, low |
+| One `medium` | 4 | 25, moderate (floor; curve 8) |
+| One `high` | 10 | 50, high (floor; curve 18) |
+| One `critical` | 25 | 75, very high (floor; curve 39) |
+| 20 `low` | 20 | 33, moderate (curve) |
+| Real scan of `badsecurityinc.be` on 30/09: 4 high, 4 medium, 8 low | 64 | 72, high (curve) |
+| Full ground truth of the test environment (#47): 7 high, 6 medium, 9 low | 103 | 87, very high (curve) |
+
+Rules:
+- **Scan:** only a `completed` or `partial` scan has a score. While a scan runs the findings are incomplete, and a `failed` scan would look safe because it found little: both return `null`.
+- **Incomplete scan:** a `partial` scan, a scan in which a module reported warnings (10.3.1), or a scan with a module that is still a placeholder, keeps its score with `risk_complete: false`, because a failed module or a failed part of one may have missed findings. The dashboard marks the score with an asterisk and shows how many modules completed without problems. `risk_complete` is `true` for a completed scan without warnings and `null` without a score.
+- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score. `risk_complete` is `false` when the newest scored scan of **any** domain is incomplete: a finding missed on another domain could have raised the client's score.
+- The score is **computed from the stored findings** when it is requested, not stored separately, so it always matches the findings. Changing the weights therefore also changes the score of older scans.
+

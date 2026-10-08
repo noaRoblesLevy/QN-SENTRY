@@ -1,4 +1,7 @@
-import type { Client, Finding, ModuleName } from '../types'
+import type { Client, Finding, ModuleName, Risk } from '../types'
+
+// Clients as the mock stores them: the risk score is computed when the API returns them
+export type StoredClient = Omit<Client, keyof Risk>
 
 /** A fake TXT record value; the real one is an HMAC made by the backend (#48) */
 export function mockVerificationRecord(domain: string): string {
@@ -17,7 +20,7 @@ export function unverifiedDomain(name: string) {
 
 // Fake data until the API is available.
 // Other clients use the reserved .example TLD, so they can never be real domains.
-export const mockClients: Client[] = [
+export const mockClients: StoredClient[] = [
   {
     id: 1,
     name: 'BadSecurityInc',

@@ -8,6 +8,7 @@ import PageHeader from '../components/PageHeader'
 import Panel from '../components/Panel'
 import RelativeTime from '../components/RelativeTime'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
+import RiskBadge from '../components/RiskBadge'
 import StatusBadge from '../components/StatusBadge'
 import { useAsync } from '../hooks/useAsync'
 import { plural } from '../lib/format'
@@ -111,7 +112,12 @@ function ClientView({ clientId }: { clientId: number }) {
       <PageHeader
         title={client.name}
         breadcrumbs={[{ label: 'Clients', to: '/' }, { label: client.name }]}
-        meta={plural(client.domains.length, 'domain')}
+        meta={
+          <>
+            <span>{plural(client.domains.length, 'domain')}</span>
+            <RiskBadge risk={client} />
+          </>
+        }
       />
 
       <Panel title="Domains" meta="Run a scan to assess what an attacker can find about a domain." flush>
@@ -159,6 +165,7 @@ function ClientView({ clientId }: { clientId: number }) {
                         {lastScan ? (
                           <span className="last-scan">
                             <StatusBadge kind="scan" status={lastScan.status} />
+                            {lastScan.risk_score !== null && <RiskBadge risk={lastScan} />}
                             <span className="muted">
                               <RelativeTime iso={lastScan.created_at} />
                             </span>

@@ -36,6 +36,11 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
+/** Direct link to the PDF report of a finished scan (downloaded by the browser, not fetched) */
+export function reportUrl(scanId: number): string {
+  return `${BASE_URL}/api/scans/${scanId}/report.pdf`
+}
+
 export const httpApi: Api = {
   listClients: () => request('/api/clients'),
   getClient: (clientId) => request(`/api/clients/${clientId}`),
