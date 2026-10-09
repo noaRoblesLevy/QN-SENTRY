@@ -50,8 +50,24 @@ openssl rand -base64 24                                   # macOS, Linux, Git Ba
 ```
 
 ```powershell
-[Convert]::ToBase64String((1..24 | ForEach-Object { Get-Random -Maximum 256 }))   # PowerShell
+$b = New-Object byte[] 24; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)   # PowerShell
 ```
+
+Then replace the example value of `DOMAIN_VERIFICATION_SECRET` with your own secret of at least 32 characters. QN-Sentry derives the DNS TXT record that proves you control a domain from it (see the user guide), so:
+
+- **keep it**: with a new secret every TXT record that was added before stops working;
+- **share it only privately** (a password manager), never in Git, an issue or a chat: everyone with the secret can compute the records;
+- **use the same secret on every installation** that scans the same domains (e.g. a demo laptop), so one TXT record works for all of them.
+
+```bash
+openssl rand -hex 32                                      # macOS, Linux, Git Bash
+```
+
+```powershell
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { $_.ToString('x2') })   # PowerShell
+```
+
+Both use the operating system's cryptographic random generator (`Get-Random` is not meant for secrets). Put it on its own line, with nothing after it: `DOMAIN_VERIFICATION_SECRET=<64 characters>`. Without it, or with the example value, `migrate`, the API and the worker refuse to start, and the error does not print the value.
 
 `.env` is in `.gitignore`: never commit it.
 
@@ -94,6 +110,7 @@ All settings are environment variables in `.env`. The `api`, `worker`, `beat` an
 |---|---|---|
 | `POSTGRES_DB` | `qnsentry` | Database name |
 | `POSTGRES_USER` | `qnsentry` | Database user |
+| `DOMAIN_VERIFICATION_SECRET` | none: **required** | Secret the domain verification records are derived from; at least 32 characters, not the example value. Keep it: changing it invalidates every TXT record |
 | `POSTGRES_PASSWORD` | none: **required** | Database password; the services do not start without it |
 | `SCAN_TIMEOUT_MINUTES` | `120` | A scan still queued or running after this many minutes counts as stuck and no longer blocks its domain (at least 1) |
 | `RETENTION_DAYS` | `90` | Scan results older than this are deleted every night at 03:00 UTC and when the worker starts (GDPR storage limitation; at least 1) |
