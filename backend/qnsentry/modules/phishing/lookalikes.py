@@ -185,7 +185,7 @@ def check_resolver(nameservers: list[str] | None = None) -> None:
         raise RuntimeError(
             f"The DNS resolver {', '.join(resolver.nameservers)} does not resolve names that must "
             f"exist ({type(e).__name__}), so lookalike results would be unreliable. "
-            "Use another resolver, e.g. nameservers=['1.1.1.1']."
+            "Set DNS_SERVERS to servers that work on this network, e.g. 1.1.1.1."
         ) from e
 
 

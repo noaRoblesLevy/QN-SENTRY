@@ -33,7 +33,7 @@
     {"id": "br-sofie", "module": "breach", "type": "breached_email", "asset": "sofie.maes@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub"},
     {"id": "br-lotte", "module": "breach", "type": "breached_email", "asset": "lotte.vandenbroeck@badsecurityinc.be", "severity": "medium", "planted": "SampleNewsletterHub"},
     {"id": "br-info", "module": "breach", "type": "breached_email", "asset": "info@badsecurityinc.be", "severity": "low", "planted": "PretendSpamList (address only)"},
-    {"id": "br-pieter", "module": "breach", "type": "breached_email", "asset": "pieter.mertens@badsecurityinc.be", "severity": "high", "planted": "Derived from the author name in the annual report", "pending": "Deriving addresses from names (#12)"}
+    {"id": "br-pieter", "module": "breach", "type": "breached_email", "asset": "pieter.mertens@badsecurityinc.be", "severity": "high", "planted": "Derived from the author name in the annual report"}
   ],
   "must_not_find": [
     {"id": "fp-privacy-notice", "module": "metadata", "type": "document_metadata", "asset": "https://*badsecurityinc.be/files/privacy-notice.pdf", "reason": "Cleaned document without metadata"},
