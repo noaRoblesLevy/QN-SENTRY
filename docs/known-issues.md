@@ -44,13 +44,13 @@ The reason is shown under the module on the scan page. The other modules still r
 | Message | Cause | Fix |
 |---|---|---|
 | `The website https://... could not be crawled` | The site is offline, or DNS or TLS failed | Check the site in a browser; scan again later |
-| `The DNS resolver ... does not resolve names that must exist` | The DNS resolver of the container gives wrong answers (see below) | Another network, or another resolver |
+| `The DNS resolver ... does not resolve names that must exist` | The DNS resolver of the container gives wrong answers (see below) | Another network, or other servers in `DNS_SERVERS` |
 | `Certificate Transparency could not be searched reliably` | Cert Spotter and crt.sh both failed or were rate-limited | Scan again later, or set `CERTSPOTTER_API_KEY` |
 | `katana is not installed in the worker image` / `exiftool ...` | The worker image is outdated | `docker compose up -d --build` |
 
 ### A scan takes much longer than half a minute
 
-A scan of `badsecurityinc.be` normally takes about half a minute. When the Phishing domains module takes many minutes, the DNS resolver is slow for names that **do not exist**: instead of answering "does not exist" at once, it lets each question time out (5 seconds). The resolver check passes, because existing names do resolve, but the lookalike check asks about hundreds of names that do not exist. Seen on a network where Docker's DNS (`127.0.0.11`) took 5 s per such name while `1.1.1.1` answered in 0.2 s, which turned 5 seconds into more than 15 minutes. Run the scan on another network, e.g. a phone hotspot.
+A scan of `badsecurityinc.be` normally takes about half a minute. When the Phishing domains module takes many minutes, the DNS resolver is slow for names that **do not exist**: instead of answering "does not exist" at once, it lets each question time out (5 seconds). The resolver check passes, because existing names do resolve, but the lookalike check asks about hundreds of names that do not exist. Seen on a network where Docker's DNS (`127.0.0.11`) took 5 s per such name while `1.1.1.1` answered in 0.2 s, which turned 5 seconds into more than 15 minutes. Since #80 the module uses public DNS servers (`DNS_SERVERS`, default `1.1.1.1,8.8.8.8,9.9.9.9`), which answer at once. It only falls back to the container's DNS when a network blocks them; then run the scan on another network, e.g. a phone hotspot, or set `DNS_SERVERS` to the DNS server of the network.
 
 ### DNS-filtering networks
 
