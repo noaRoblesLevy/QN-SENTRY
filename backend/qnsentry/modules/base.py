@@ -31,6 +31,9 @@ class ScanContext:
     # Hosts of the domain that resolve, from Attack Surface (#4) for its port and web checks:
     # [{"name": "www.example.be", "ips": ["192.0.2.10"]}]
     live_hosts: list[dict] = field(default_factory=list)
+    # Addresses the user confirmed may get a port scan (#81), set by the worker from the
+    # domain; an address that is not in this list is never port-scanned
+    port_scan_ips: list[str] = field(default_factory=list)
     # How a last name of several words is written: "joined" or "separated" (contract 10.4.3)
     last_name_style: str | None = None
     # Warnings of the module that is running; the worker empties the list before each module
@@ -44,6 +47,21 @@ class ScanContext:
         item, and without personal data: warnings are shown in the dashboard and the report.
         """
         self.warnings.append(message)
+
+    def port_scan_targets(self) -> dict[str, list[str]]:
+        """{ip: [host names]} that may get a port scan (#81): approved by the user and found
+        again for a live host in this scan.
+
+        An approved address the domain's hosts no longer resolve to is never scanned: a cloud
+        address can belong to someone else within hours. Attack Surface (#5) must scan only these.
+        """
+        approved = set(self.port_scan_ips)
+        targets: dict[str, list[str]] = {}
+        for host in self.live_hosts:
+            for ip in host.get("ips", []):
+                if ip in approved:
+                    targets.setdefault(ip, []).append(host["name"])
+        return targets
 
 
 class Module(ABC):

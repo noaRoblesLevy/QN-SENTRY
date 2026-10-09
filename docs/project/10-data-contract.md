@@ -125,6 +125,8 @@ Modules share information through a scan context. The worker creates it at the s
 |---|---|---|---|
 | `domain` | text | Worker, at the start of the scan | `badsecurityinc.be` |
 | `live_hosts` | list of `{name, ips}` | Attack Surface (#4) | `[{"name": "www.badsecurityinc.be", "ips": ["76.76.21.21"]}]` |
+| `port_scan_ips` | list of text | Worker, from the domain's approvals (#81) | `["192.0.2.10"]` |
+| `port_scan_targets()` | `{ip: [host names]}` | Computed from `port_scan_ips` and `live_hosts` | `{"192.0.2.10": ["dev.badsecurityinc.be"]}` |
 | `person_names` | list of text | Metadata | `["Jan Peeters", "Sofie Maes"]` |
 | `emails` | list of text | Metadata | `["info@badsecurityinc.be", "sofie.maes@badsecurityinc.be"]` |
 | `email_convention` | text, or empty if unknown | Metadata | `first.last` |
@@ -197,6 +199,8 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `POST` | `/api/clients/{id}/domains` | Add a domain to a client |
 | `POST` | `/api/domains/{id}/permission` | Confirm permission for a domain added before #3 |
 | `POST` | `/api/domains/{id}/verify` | Look up the TXT record and mark the domain verified (#48) |
+| `GET` | `/api/domains/{id}/addresses` | The addresses the latest scan found, and which may get a port scan (#81) |
+| `PUT` | `/api/domains/{id}/port-scan` | Set the addresses that may get a port scan (#81) |
 | `POST` | `/api/domains/{id}/scans` | Start a scan for a domain |
 | `GET` | `/api/scans/{id}` | Get the scan status and the status per module |
 | `GET` | `/api/scans/{id}/findings` | Get the findings of a scan |
@@ -247,6 +251,8 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be", "permission_confirmed": true}` | `201` | The new domain: `id`, `name`, `permission_confirmed` (`true`), `verified` (`false`), `verification_record` |
 | `POST /api/domains/{id}/permission` | | `200` | The domain with `permission_confirmed: true` |
 | `POST /api/domains/{id}/verify` | | `200` | The domain with `verified: true`; `409` when the record is not found, `503` when the DNS lookup failed |
+| `GET /api/domains/{id}/addresses` | | `200` | List of `ip`, `hosts` (names that resolved to it in the latest scan) and `approved` |
+| `PUT /api/domains/{id}/port-scan` | `{"ips": ["192.0.2.10"]}` | `200` | The addresses as above. Replaces the approvals; `[]` clears them. `403` for a domain that is not verified, `422` for an invalid address or one the latest scan did not find for the domain |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
 | `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level` and `risk_complete` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
@@ -260,6 +266,7 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 - **Permission is confirmed when a domain is added (#3).** `permission_confirmed` must be `true`, otherwise `422`. A domain added before this rule existed is confirmed with `POST /api/domains/{id}/permission`.
 - **Ownership is proven with a DNS TXT record (#48).** The domain gets a record `qn-sentry-verify=<token>`; the token is an HMAC of the domain name with `DOMAIN_VERIFICATION_SECRET`, so the same installation always asks for the same record. `POST /api/domains/{id}/verify` looks up the TXT records of the domain: an exact match marks it verified, no match gives `409`, a failed lookup `503`.
 - **Only confirmed and verified domains can be scanned, and the record is checked again at every scan.** Otherwise starting a scan returns `403` with what to do. A client that removes the TXT record withdraws its permission: the scan is refused with `403` and the domain is no longer verified, so the dashboard shows the verification step again. A failed lookup at that moment gives `503` and starts no scan, without changing the verification. This is enforced by the API, not only by the dashboard.
+- **A port scan only reaches addresses the user approved (#81).** The TXT record proves control of the domain, not of the servers behind it: a host can point to shared hosting. Only verified domains can approve addresses, and only addresses their hosts resolved to in the latest finished scan; an approved address can be kept or withdrawn after the hosts moved, but not added. A port scan uses `ScanContext.port_scan_targets()`: approved **and** found again for a live host in that scan, so an address the hosts no longer point to is never scanned. New domains and existing ones start with no approved address.
 - **One active scan per domain.** Starting a scan while another scan of that domain is `queued` or `running` returns `409`.
 - **Stuck scans do not block their domain.** A scan still `queued` or `running` after `SCAN_TIMEOUT_MINUTES` (default 120) is marked `failed` when a new scan of that domain is started. Its unfinished modules get the reason as `error`.
 - **Interrupted scans end as `failed`.** If a worker stops during a scan, the scan is marked `failed` ("The worker stopped during this scan") instead of being run again, so findings are never stored twice.

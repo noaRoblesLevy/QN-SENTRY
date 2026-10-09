@@ -1,5 +1,6 @@
 """Request and response bodies of the API (docs/project/10-data-contract.md, 10.5)."""
 
+import ipaddress
 import re
 from datetime import datetime
 from typing import Any
@@ -49,6 +50,25 @@ class DomainCreate(BaseModel):
         return domain
 
 
+class PortScanApprovalsIn(BaseModel):
+    """The addresses of a domain the user confirms may get a port scan (#81)."""
+
+    ips: list[str]
+
+    @field_validator("ips")
+    @classmethod
+    def valid_addresses(cls, value: list[str]) -> list[str]:
+        normalised = []
+        for ip in value:
+            try:
+                address = str(ipaddress.ip_address(ip.strip()))
+            except ValueError:
+                raise ValueError(f"{ip} is not a valid IP address.") from None
+            if address not in normalised:
+                normalised.append(address)
+        return normalised
+
+
 # ---------- Response bodies ----------
 
 
@@ -75,6 +95,18 @@ class DomainOut(BaseModel):
     verified: bool
     # The TXT record to add to the domain, e.g. "qn-sentry-verify=3f9a..."
     verification_record: str
+    # Addresses the user confirmed may get a port scan (#81)
+    port_scan_ips: list[str]
+
+
+class AddressOut(BaseModel):
+    """An address of a domain's hosts, and whether it may get a port scan (#81)."""
+
+    ip: str
+    # Host names that resolved to it in the latest scan; [] for an approved address the
+    # latest scan did not see anymore
+    hosts: list[str]
+    approved: bool
 
 
 class DomainWithScans(DomainOut):

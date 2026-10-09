@@ -2,7 +2,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func, text
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -108,6 +108,14 @@ class Domain(Base):
     scans: Mapped[list["Scan"]] = relationship(
         back_populates="domain", cascade="all, delete-orphan", order_by="Scan.id.desc()"
     )
+    # Addresses the user confirmed may get a port scan (#81)
+    port_scan_approvals: Mapped[list["PortScanApproval"]] = relationship(
+        back_populates="domain", cascade="all, delete-orphan", order_by="PortScanApproval.ip"
+    )
+
+    @property
+    def port_scan_ips(self) -> list[str]:
+        return [approval.ip for approval in self.port_scan_approvals]
 
     @property
     def permission_confirmed(self) -> bool:
@@ -130,6 +138,24 @@ class Domain(Base):
     def latest_risk(self) -> Risk | None:
         """Risk of the newest scan that has a score (running and failed scans have none)."""
         return next((scan.risk for scan in self.scans if scan.risk is not None), None)
+
+
+class PortScanApproval(Base):
+    """An address of a domain that the user confirmed may get a port scan (#81).
+
+    The TXT record of #48 proves control of the domain, not of the servers behind it: a
+    host can point to shared hosting. So the user confirms each address explicitly.
+    """
+
+    __tablename__ = "port_scan_approvals"
+    __table_args__ = (UniqueConstraint("domain_id", "ip"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain_id: Mapped[int] = mapped_column(ForeignKey("domains.id", ondelete="CASCADE"))
+    ip: Mapped[str] = mapped_column(String(45))  # long enough for IPv6
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    domain: Mapped[Domain] = relationship(back_populates="port_scan_approvals")
 
 
 class Scan(Base):
