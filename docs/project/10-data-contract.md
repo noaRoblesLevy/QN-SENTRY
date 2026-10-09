@@ -124,6 +124,7 @@ Modules share information through a scan context. The worker creates it at the s
 | Field | Type | Filled by | Example |
 |---|---|---|---|
 | `domain` | text | Worker, at the start of the scan | `badsecurityinc.be` |
+| `live_hosts` | list of `{name, ips}` | Attack Surface (#4) | `[{"name": "www.badsecurityinc.be", "ips": ["76.76.21.21"]}]` |
 | `person_names` | list of text | Metadata | `["Jan Peeters", "Sofie Maes"]` |
 | `emails` | list of text | Metadata | `["info@badsecurityinc.be", "sofie.maes@badsecurityinc.be"]` |
 | `email_convention` | text, or empty if unknown | Metadata | `first.last` |
