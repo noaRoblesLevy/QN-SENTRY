@@ -19,6 +19,9 @@ TOP_PORTS = "1000"
 RATE = 300
 NAABU_TIMEOUT_SECONDS = 600
 NMAP_TIMEOUT_SECONDS = 600
+# For all addresses together: no new nmap run starts after this, so naabu and nmap stay well
+# under SCAN_TIMEOUT_MINUTES (120) also with many approved addresses
+NMAP_BUDGET_SECONDS = 1200
 
 
 @dataclass

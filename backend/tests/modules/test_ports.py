@@ -238,6 +238,31 @@ def test_open_ports_are_still_reported_when_nmap_fails(monkeypatch):
     assert "The services of 1 address(es) could not be identified, only their open ports" in context.warnings
 
 
+def test_an_approved_address_without_open_ports_is_a_warning(monkeypatch):
+    # naabu exits with 0 and prints nothing on a network that blocks outgoing connections
+    # (review of #85): "no open ports" must not look like a checked, closed server
+    fake_scan(monkeypatch, open_ports={})
+    context = ScanContext(domain=DOMAIN, live_hosts=LIVE_HOSTS, port_scan_ips=["192.0.2.10"])
+
+    assert port_findings(context) == []
+    assert context.warnings == [
+        "1 address(es) were not port-scanned because they were not confirmed",
+        "No open port was found on 1 approved address(es) (192.0.2.10): either the server accepts no "
+        "connections, or the network QN-Sentry runs on blocks outgoing connections",
+    ]
+
+
+def test_past_the_time_budget_open_ports_are_reported_without_services(monkeypatch):
+    fake_scan(monkeypatch, open_ports={"192.0.2.10": [22]}, services=[Service("192.0.2.10", 22, service="ssh")])
+    monkeypatch.setattr(ports, "NMAP_BUDGET_SECONDS", 0)
+    context = ScanContext(domain=DOMAIN, live_hosts=LIVE_HOSTS, port_scan_ips=["192.0.2.10"])
+
+    [finding] = port_findings(context)
+
+    assert (finding.asset, finding.severity, finding.details["service"]) == ("192.0.2.10:22", Severity.MEDIUM, "")
+    assert "The services of 1 address(es) could not be identified, only their open ports" in context.warnings
+
+
 def test_ipv6_addresses_are_written_with_brackets(monkeypatch):
     fake_scan(monkeypatch, open_ports={"2001:db8::10": [443]}, services=[Service("2001:db8::10", 443, service="http")])
     live_hosts = [{"name": "dev.badsecurityinc.be", "ips": ["2001:db8::10"], "cdn": None}]

@@ -7,6 +7,7 @@
 The live hosts go into the scan context, so the port and web checks scan exactly those.
 """
 
+import time
 from dataclasses import asdict
 
 from qnsentry.db.models import Severity
@@ -127,12 +128,26 @@ def port_findings(context: ScanContext) -> list[Finding]:
         context.warn(f"Open ports could not be checked: {error}")
         return []
 
+    # naabu exits with 0 and prints nothing when it cannot connect at all, e.g. on a network
+    # that only allows 80 and 443 outward: then every server would look closed (review of #85)
+    closed = [ip for ip in targets if not open_ports.get(ip)]
+    if closed:
+        context.warn(
+            f"No open port was found on {len(closed)} approved address(es) ({', '.join(closed)}): either "
+            "the server accepts no connections, or the network QN-Sentry runs on blocks outgoing connections"
+        )
+
     findings = []
     unidentified = 0
+    started = time.monotonic()
     for ip, numbers in open_ports.items():
         if ip not in targets:  # only report addresses that were allowed to be scanned
             continue
         try:
+            # nmap runs per address: past the budget the open ports are still reported, so
+            # many approved addresses cannot push the scan past SCAN_TIMEOUT_MINUTES
+            if time.monotonic() - started >= ports.NMAP_BUDGET_SECONDS:
+                raise RuntimeError("the time budget for identifying services is used up")
             services = {service.port: service for service in ports.identify(ip, numbers)}
         except RuntimeError:
             unidentified += 1
