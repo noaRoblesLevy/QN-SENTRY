@@ -32,6 +32,10 @@ async function errorMessage(response: Response): Promise<string> {
   return `Request failed: ${response.status} ${response.statusText}`
 }
 
+function put<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'PUT', body: JSON.stringify(body) })
+}
+
 function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 }
@@ -49,6 +53,8 @@ export const httpApi: Api = {
     post(`/api/clients/${clientId}/domains`, { name, permission_confirmed: permissionConfirmed }),
   confirmPermission: (domainId) => post(`/api/domains/${domainId}/permission`),
   verifyDomain: (domainId) => post(`/api/domains/${domainId}/verify`),
+  getAddresses: (domainId) => request(`/api/domains/${domainId}/addresses`),
+  setPortScanAddresses: (domainId, ips) => put(`/api/domains/${domainId}/port-scan`, { ips }),
   startScan: (domainId) => post(`/api/domains/${domainId}/scans`),
   getScan: (scanId) => request(`/api/scans/${scanId}`),
   getFindings: (scanId) => request(`/api/scans/${scanId}/findings`),

@@ -1,4 +1,4 @@
-import type { Client, Domain, Finding, Scan, ScanSummary } from '../types'
+import type { Address, Client, Domain, Finding, Scan, ScanSummary } from '../types'
 
 /** Everything the dashboard asks the backend (data contract 10.5). */
 export type Api = {
@@ -10,6 +10,10 @@ export type Api = {
   confirmPermission(domainId: number): Promise<Domain>
   /** Looks up the TXT record; fails with the reason when it is not there (#48) */
   verifyDomain(domainId: number): Promise<Domain>
+  /** The addresses the latest scan found for the domain, and which may get a port scan (#81) */
+  getAddresses(domainId: number): Promise<Address[]>
+  /** Replaces the addresses that may get a port scan; [] clears them */
+  setPortScanAddresses(domainId: number, ips: string[]): Promise<Address[]>
   startScan(domainId: number): Promise<ScanSummary>
   getScan(scanId: number): Promise<Scan>
   getFindings(scanId: number): Promise<Finding[]>

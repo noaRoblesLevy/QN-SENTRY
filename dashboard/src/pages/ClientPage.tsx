@@ -5,6 +5,7 @@ import { api } from '../api'
 import Button from '../components/Button'
 import InlineAddForm from '../components/InlineAddForm'
 import PageHeader from '../components/PageHeader'
+import PortScanScope from '../components/PortScanScope'
 import Panel from '../components/Panel'
 import RelativeTime from '../components/RelativeTime'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
@@ -249,6 +250,22 @@ function ClientView({ clientId }: { clientId: number }) {
           </table>
         )}
       </Panel>
+
+      {client.domains.some((domain) => domain.verified) && (
+        <Panel
+          title="Port scan"
+          meta="Only addresses you confirm get a port scan: a domain can point to shared hosting that belongs to someone else."
+        >
+          {client.domains
+            .filter((domain) => domain.verified)
+            .map((domain) => (
+              <div key={domain.id} className="port-scan-domain">
+                <h3 className="mono">{domain.name}</h3>
+                <PortScanScope domain={domain} />
+              </div>
+            ))}
+        </Panel>
+      )}
 
       <Panel title="Add a domain">
         <InlineAddForm
