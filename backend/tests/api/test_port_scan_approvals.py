@@ -21,12 +21,12 @@ def verified_domain(api, monkeypatch) -> dict:
     return domain
 
 
-def scan_with_hosts(domain_id: int, live_hosts=LIVE_HOSTS) -> None:
-    """A finished scan whose Attack Surface module found these hosts (#4)."""
+def scan_with_hosts(domain_id: int, live_hosts=LIVE_HOSTS, status: str = "completed") -> None:
+    """A scan whose Attack Surface module found these hosts (#4)."""
     with engine.begin() as connection:
         connection.execute(
-            text("INSERT INTO scans (domain_id, status, context) VALUES (:d, 'completed', CAST(:c AS JSONB))"),
-            {"d": domain_id, "c": json.dumps({"domain": "badsecurityinc.be", "live_hosts": live_hosts})},
+            text("INSERT INTO scans (domain_id, status, context) VALUES (:d, :s, CAST(:c AS JSONB))"),
+            {"d": domain_id, "s": status, "c": json.dumps({"domain": "badsecurityinc.be", "live_hosts": live_hosts})},
         )
 
 
@@ -124,6 +124,34 @@ def test_an_approved_address_the_latest_scan_did_not_find_stays_visible(api, mon
     addresses = api.get(f"/api/domains/{domain['id']}/addresses").json()
 
     assert {"ip": "192.0.2.10", "hosts": [], "approved": True} in addresses
+
+
+def test_an_approved_address_the_latest_scan_did_not_find_can_be_kept(api, monkeypatch):
+    # The dashboard sends back every checked address, also one the latest scan did not see anymore
+    domain = verified_domain(api, monkeypatch)
+    scan_with_hosts(domain["id"])
+    url = f"/api/domains/{domain['id']}/port-scan"
+    api.put(url, json={"ips": ["192.0.2.10"]})
+    scan_with_hosts(domain["id"], live_hosts=[{"name": "badsecurityinc.be", "ips": ["76.76.21.21"]}])
+
+    response = api.put(url, json={"ips": ["192.0.2.10", "76.76.21.21"]})
+
+    assert response.status_code == 200
+    assert [a["ip"] for a in response.json() if a["approved"]] == ["76.76.21.21", "192.0.2.10"]
+
+
+def test_only_the_latest_finished_scan_counts(api, monkeypatch):
+    # An older scan's address may no longer belong to the domain, and a running scan has no hosts yet
+    domain = verified_domain(api, monkeypatch)
+    scan_with_hosts(domain["id"])
+    scan_with_hosts(domain["id"], live_hosts=[{"name": "badsecurityinc.be", "ips": ["76.76.21.21"]}])
+    scan_with_hosts(domain["id"], live_hosts=[], status="running")
+
+    addresses = api.get(f"/api/domains/{domain['id']}/addresses").json()
+    response = api.put(f"/api/domains/{domain['id']}/port-scan", json={"ips": ["192.0.2.10"]})
+
+    assert [a["ip"] for a in addresses] == ["76.76.21.21"]
+    assert response.status_code == 422
 
 
 def test_unknown_domain_is_404(api):

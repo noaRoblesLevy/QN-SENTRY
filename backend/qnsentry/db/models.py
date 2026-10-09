@@ -140,7 +140,6 @@ class Domain(Base):
         return next((scan.risk for scan in self.scans if scan.risk is not None), None)
 
 
-
 class PortScanApproval(Base):
     """An address of a domain that the user confirmed may get a port scan (#81).
 
@@ -157,6 +156,7 @@ class PortScanApproval(Base):
     approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     domain: Mapped[Domain] = relationship(back_populates="port_scan_approvals")
+
 
 class Scan(Base):
     __tablename__ = "scans"

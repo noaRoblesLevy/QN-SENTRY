@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from qnsentry import verification
 from qnsentry.api.schemas import AddressOut, DomainOut, PortScanApprovalsIn
-from qnsentry.db.models import Domain, PortScanApproval
+from qnsentry.db.models import Domain, PortScanApproval, ScanStatus
 from qnsentry.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -79,16 +79,20 @@ def verify_domain(domain_id: int, db: Session = Depends(get_db)) -> Domain:
 
 
 def discovered_addresses(domain: Domain) -> dict[str, list[str]]:
-    """{ip: [host names]} from the newest scan that found live hosts (Attack Surface, #4)."""
-    for scan in domain.scans:
-        live_hosts = (scan.context or {}).get("live_hosts") or []
-        if live_hosts:
-            addresses: dict[str, list[str]] = {}
-            for host in live_hosts:
-                for ip in host.get("ips", []):
-                    addresses.setdefault(ip, []).append(host["name"])
-            return addresses
-    return {}
+    """{ip: [host names]} from the latest finished scan (Attack Surface, #4).
+
+    Only that scan, without falling back to an older one: an address an older scan found
+    may no longer belong to the domain.
+    """
+    latest = next(
+        (scan for scan in domain.scans if scan.status in (ScanStatus.COMPLETED, ScanStatus.PARTIAL)),
+        None,
+    )
+    addresses: dict[str, list[str]] = {}
+    for host in ((latest.context or {}).get("live_hosts") or []) if latest else []:
+        for ip in host.get("ips", []):
+            addresses.setdefault(ip, []).append(host["name"])
+    return addresses
 
 
 def addresses_of(domain: Domain) -> list[AddressOut]:
@@ -110,8 +114,9 @@ def set_port_scan_approvals(
 ) -> list[AddressOut]:
     """Replace the addresses that may get a port scan.
 
-    Only for a verified domain, and only addresses its hosts resolved to in the latest scan:
-    an address the scan did not find for this domain cannot be approved through it.
+    Only for a verified domain, and only addresses its hosts resolved to in the latest finished
+    scan: an address the scan did not find for this domain cannot be approved through it. An
+    approved address may be kept or withdrawn after the hosts moved, but not added again.
     """
     domain = get_domain_or_404(db, domain_id)
     if not domain.verified:
@@ -120,7 +125,10 @@ def set_port_scan_approvals(
             f"Verify that you control {domain.name} before approving addresses for a port scan.",
         )
     discovered = discovered_addresses(domain)
-    unknown = [ip for ip in payload.ips if ip not in discovered]
+    # An approved address may be kept or withdrawn, also when the latest scan did not find it
+    # anymore; a new address can only come from the latest scan
+    already = set(domain.port_scan_ips)
+    unknown = [ip for ip in payload.ips if ip not in discovered and ip not in already]
     if unknown:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -131,7 +139,6 @@ def set_port_scan_approvals(
     for approval in list(domain.port_scan_approvals):
         if approval.ip not in wanted:
             domain.port_scan_approvals.remove(approval)
-    already = set(domain.port_scan_ips)
     for ip in payload.ips:
         if ip not in already:
             domain.port_scan_approvals.append(PortScanApproval(ip=ip))

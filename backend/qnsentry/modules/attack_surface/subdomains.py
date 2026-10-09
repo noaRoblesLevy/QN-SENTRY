@@ -10,6 +10,7 @@
 """
 
 import json
+import re
 import secrets
 import shutil
 import subprocess
@@ -21,6 +22,9 @@ SUBFINDER_MINUTES = 2
 SOURCE_TIMEOUT_SECONDS = 20
 MAX_SUBDOMAINS = 200
 RESOLVERS = "1.1.1.1,8.8.8.8,9.9.9.9"
+# Both tools exit with 0 when they could not reach anything; these stderr lines say so
+FAILED_SOURCE = re.compile(r"Encountered an error with source ([A-Za-z0-9_-]+)")
+FAILED_LOOKUPS = re.compile(r"(\d+) domains? failed to resolve")
 
 
 @dataclass
@@ -31,15 +35,20 @@ class Host:
     sources: list[str] = field(default_factory=list)  # passive sources that listed the name
 
 
-def passive_subdomains(domain: str) -> dict[str, list[str]]:
-    """{subdomain: [sources]} from subfinder. Raises RuntimeError when it cannot run."""
+def passive_subdomains(domain: str) -> tuple[dict[str, list[str]], list[str]]:
+    """({subdomain: [sources]}, [sources that failed]) from subfinder.
+
+    Raises RuntimeError when subfinder cannot run. A few sources always fail (an API that
+    is down or wants a key), so a failed source alone is normal; the caller decides.
+    """
     if shutil.which("subfinder") is None:
         raise RuntimeError("subfinder is not installed in the worker image")
     command = [
         "subfinder",
         "-d", domain,
         "-oJ", "-cs",  # JSON lines with the sources of every name
-        "-silent", "-nc",
+        # Verbose: subfinder logs a failing source only then, and still exits with 0
+        "-v", "-nc",
         "-max-time", str(SUBFINDER_MINUTES),
         "-timeout", str(SOURCE_TIMEOUT_SECONDS),
         # No update check at every start: it can hang (#76), and a scan should only contact
@@ -53,7 +62,7 @@ def passive_subdomains(domain: str) -> dict[str, list[str]]:
     if result.returncode != 0:
         stderr = result.stderr.strip().splitlines()
         raise RuntimeError(f"subfinder failed: {stderr[-1] if stderr else f'exit code {result.returncode}'}")
-    return parse_subfinder_output(result.stdout, domain)
+    return parse_subfinder_output(result.stdout, domain), failed_sources(result.stderr)
 
 
 def parse_subfinder_output(output: str, domain: str) -> dict[str, list[str]]:
@@ -74,9 +83,12 @@ def parse_subfinder_output(output: str, domain: str) -> dict[str, list[str]]:
     return found
 
 
-def resolve(names: list[str]) -> dict[str, Host]:
-    """The names that resolve, with their addresses and CNAMEs. Raises RuntimeError when dnsx
-    cannot run: then nothing was checked."""
+def resolve(names: list[str]) -> tuple[dict[str, Host], int]:
+    """(the names that resolve with their addresses and CNAMEs, the number of failed lookups).
+
+    A failed lookup (timeout, unreachable resolver) is not a name that does not exist:
+    NXDOMAIN gives no such line. Raises RuntimeError when dnsx cannot run.
+    """
     if shutil.which("dnsx") is None:
         raise RuntimeError("dnsx is not installed in the worker image")
     command = [
@@ -94,7 +106,18 @@ def resolve(names: list[str]) -> dict[str, Host]:
     if result.returncode != 0:
         stderr = result.stderr.strip().splitlines()
         raise RuntimeError(f"dnsx failed: {stderr[-1] if stderr else f'exit code {result.returncode}'}")
-    return parse_dnsx_output(result.stdout)
+    return parse_dnsx_output(result.stdout), failed_lookups(result.stderr)
+
+
+def failed_sources(stderr: str) -> list[str]:
+    """The passive sources subfinder could not search, sorted, each once."""
+    return sorted(set(FAILED_SOURCE.findall(stderr)))
+
+
+def failed_lookups(stderr: str) -> int:
+    """How many names dnsx could not look up ("3 domains failed to resolve")."""
+    match = FAILED_LOOKUPS.search(stderr)
+    return int(match.group(1)) if match else 0
 
 
 def parse_dnsx_output(output: str) -> dict[str, Host]:
@@ -123,20 +146,35 @@ def discover(domain: str, warn: Callable[[str], None] = lambda message: None) ->
     """The live hosts of `domain`: the domain itself, www and every subdomain from passive
     sources that resolves. Partial failures are reported to `warn`."""
     try:
-        passive = passive_subdomains(domain)
+        passive, failed = passive_subdomains(domain)
     except RuntimeError as error:
         # The domain itself and www can still be checked
         warn(f"Passive sources could not be searched for subdomains: {error}")
-        passive = {}
+        passive, failed = {}, []
+    if not passive and failed:
+        # Nothing found while sources failed: "no subdomains" may only mean "not searched"
+        warn(
+            f"No subdomains were found in passive sources, and {len(failed)} source(s) could not be "
+            f"searched ({', '.join(failed)}), so subdomains may be missing"
+        )
 
-    names = list(passive)
+    # Sorted, so two scans keep the same names when there are more than MAX_SUBDOMAINS
+    names = sorted(passive)
     if len(names) > MAX_SUBDOMAINS:
         warn(f"Only the first {MAX_SUBDOMAINS} of {len(names)} subdomains from passive sources were checked")
         names = names[:MAX_SUBDOMAINS]
     candidates = list(dict.fromkeys([domain, f"www.{domain}", *names]))
     probe = f"qnsentry-wildcard-{secrets.token_hex(6)}.{domain}"
 
-    resolved = resolve([*candidates, probe])
+    resolved, failed_count = resolve([*candidates, probe])
+    if failed_count:
+        if not any(name in resolved for name in candidates):
+            # Nothing resolved and lookups failed: no DNS, so nothing was checked. Reporting
+            # "no hosts" would look like a client without an attack surface (#32)
+            raise RuntimeError(
+                f"The hosts of {domain} could not be looked up: {failed_count} DNS lookup(s) failed"
+            )
+        warn(f"{failed_count} DNS lookup(s) failed, so hosts of {domain} may be missing")
     wildcard = set(resolved[probe].ips) if probe in resolved else set()
 
     hosts = []

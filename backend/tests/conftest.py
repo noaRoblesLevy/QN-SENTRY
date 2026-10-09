@@ -13,6 +13,8 @@ TEST_SETTINGS = {
     "POSTGRES_PASSWORD": "test",
     "POSTGRES_DB": "test",
     "DOMAIN_VERIFICATION_SECRET": "test-secret-for-domain-verification-0123456789",
+    # The container's DNS, so a module test never contacts public DNS servers (#80)
+    "DNS_SERVERS": "",
 }
 for name, value in TEST_SETTINGS.items():
     os.environ.setdefault(name, value)

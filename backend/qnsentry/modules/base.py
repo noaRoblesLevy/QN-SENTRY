@@ -48,6 +48,21 @@ class ScanContext:
         """
         self.warnings.append(message)
 
+    def port_scan_targets(self) -> dict[str, list[str]]:
+        """{ip: [host names]} that may get a port scan (#81): approved by the user and found
+        again for a live host in this scan.
+
+        An approved address the domain's hosts no longer resolve to is never scanned: a cloud
+        address can belong to someone else within hours. Attack Surface (#5) must scan only these.
+        """
+        approved = set(self.port_scan_ips)
+        targets: dict[str, list[str]] = {}
+        for host in self.live_hosts:
+            for ip in host.get("ips", []):
+                if ip in approved:
+                    targets.setdefault(ip, []).append(host["name"])
+        return targets
+
 
 class Module(ABC):
     """Base class for an OSINT module (contract 10.3).
