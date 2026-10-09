@@ -37,6 +37,8 @@ function AddressForm({ domain, addresses }: { domain: Domain; addresses: Address
   const [saved, setSaved] = useState(false)
 
   const approved = new Set(current.filter((a) => a.approved).map((a) => a.ip))
+  // Only an approved address the latest scan found again gets a port scan (#81)
+  const scanned = current.filter((a) => a.approved && a.hosts.length > 0).length
   const changed = checked.size !== approved.size || [...checked].some((ip) => !approved.has(ip))
 
   function toggle(ip: string) {
@@ -96,7 +98,7 @@ function AddressForm({ domain, addresses }: { domain: Domain; addresses: Address
                 <span className="muted">
                   {address.hosts.length > 0
                     ? address.hosts.join(', ')
-                    : 'not found in the latest scan anymore; uncheck it to withdraw the approval'}
+                    : 'Not found in the latest scan, so it is not port-scanned. Uncheck it to withdraw the approval.'}
                 </span>
                 <span className="port-scan-statement">I own or manage this server and may scan its ports</span>
               </label>
@@ -114,7 +116,7 @@ function AddressForm({ domain, addresses }: { domain: Domain; addresses: Address
         </Button>
         {saved && !changed && (
           <span className="muted" role="status">
-            Saved: {approved.size === 0 ? 'no address' : `${approved.size} address${approved.size === 1 ? '' : 'es'}`} may
+            Saved: {scanned === 0 ? 'no address' : `${scanned} address${scanned === 1 ? '' : 'es'}`} may
             get a port scan
           </span>
         )}

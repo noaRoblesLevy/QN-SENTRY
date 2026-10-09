@@ -224,7 +224,8 @@ export const mockApi: Api = {
         throw new ApiError(403, `Verify that you control ${domain.name} before approving addresses for a port scan.`)
       }
       const found = new Set(discoveredAddresses(domain).map((a) => a.ip))
-      const unknown = ips.find((ip) => !found.has(ip))
+      // Like the API: an approved address may be kept after the hosts moved, but not added again
+      const unknown = ips.find((ip) => !found.has(ip) && !domain.port_scan_ips.includes(ip))
       if (unknown) throw new ApiError(422, `${unknown} was not found for ${domain.name} in the latest scan.`)
       domain.port_scan_ips = [...new Set(ips)]
       return addressesOf(domain)
