@@ -1,3 +1,5 @@
+import ipaddress
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
@@ -39,6 +41,10 @@ class Settings(BaseSettings):
     hibp_min_interval_seconds: float = 6.0
     # Cert Spotter (#10): without a key only for personal or evaluation use, with a small hourly limit
     certspotter_api_key: str | None = None
+    # DNS servers for the lookups of the phishing module (#80), comma-separated; empty = the
+    # container's DNS. On some networks Docker's DNS lets every name that does not exist time
+    # out instead of answering "does not exist", and phishing looks up hundreds of those
+    dns_servers: str = "1.1.1.1,8.8.8.8,9.9.9.9"
 
     @field_validator("domain_verification_secret")
     @classmethod
@@ -47,6 +53,23 @@ class Settings(BaseSettings):
         if value == EXAMPLE_SECRET:
             raise ValueError("replace the example DOMAIN_VERIFICATION_SECRET with your own, e.g. openssl rand -hex 32")
         return value
+
+    @field_validator("dns_servers")
+    @classmethod
+    def valid_dns_servers(cls, value: str) -> str:
+        # A typo would otherwise only show up as failed lookups during a scan
+        servers = []
+        for server in filter(None, (part.strip() for part in value.split(","))):
+            try:
+                servers.append(str(ipaddress.ip_address(server)))
+            except ValueError:
+                raise ValueError(f"{server} in DNS_SERVERS is not an IP address") from None
+        return ",".join(servers)
+
+    @property
+    def nameservers(self) -> list[str] | None:
+        """DNS_SERVERS as a list; None = the container's DNS."""
+        return self.dns_servers.split(",") if self.dns_servers else None
 
     @property
     def database_url(self) -> URL:
