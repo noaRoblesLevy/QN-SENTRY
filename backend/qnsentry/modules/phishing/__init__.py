@@ -7,7 +7,7 @@ from qnsentry.modules.base import Finding, Module, ScanContext
 from qnsentry.modules.phishing.certificates import configured_api_key, find_lookalike_certificates
 from qnsentry.modules.phishing.constants import MODULE
 from qnsentry.modules.phishing.email_security import check_email_security
-from qnsentry.modules.phishing.lookalikes import find_lookalike_domains
+from qnsentry.modules.phishing.lookalikes import check_resolver, find_lookalike_domains
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class PhishingModule(Module):
     name = MODULE
 
     def __init__(self, nameservers: list[str] | None = None) -> None:
-        # None = the resolver of the container; set e.g. ["1.1.1.1"] to use another one
+        # None = DNS_SERVERS from the settings (#80); set e.g. ["1.1.1.1"] to use other servers
         self.nameservers = nameservers
 
     def run(self, context: ScanContext) -> list[Finding]:
@@ -24,9 +24,10 @@ class PhishingModule(Module):
         # (data contract 10.3.1). Only when every check fails does the module fail.
         domain = context.domain
         errors: list[str] = []
+        nameservers = self.nameservers or reachable_nameservers(configured_nameservers())
 
         lookalikes = self._check(
-            "lookalike domains", lambda: find_lookalike_domains(domain, nameservers=self.nameservers), domain, errors
+            "lookalike domains", lambda: find_lookalike_domains(domain, nameservers=nameservers), domain, errors
         )
         # The certificate check looks up the lookalikes found above. Without them it cannot
         # run at all, which counts as a failure (otherwise a module with nothing checked
@@ -43,7 +44,7 @@ class PhishingModule(Module):
             )
         email = self._check(
             "email security",
-            lambda: check_email_security(domain, nameservers=self.nameservers, warn=context.warn),
+            lambda: check_email_security(domain, nameservers=nameservers, warn=context.warn),
             domain,
             errors,
         )
@@ -66,3 +67,23 @@ class PhishingModule(Module):
             log.warning("Phishing check '%s' failed for %s: %s", label, domain, error)
             errors.append(f"{label}: {error}")
             return []
+
+
+def configured_nameservers() -> list[str] | None:
+    from qnsentry.config import settings
+
+    return settings.nameservers
+
+
+def reachable_nameservers(nameservers: list[str] | None) -> list[str] | None:
+    """The configured DNS servers, or the container's DNS when they cannot be used: some
+    networks block DNS to servers outside the network. The results stay reliable either way,
+    because the lookalike check tests the resolver it gets (#54); only slower on some networks."""
+    if not nameservers:
+        return None
+    try:
+        check_resolver(nameservers)
+    except RuntimeError as error:
+        log.warning("DNS_SERVERS cannot be used, falling back to the container's DNS: %s", error)
+        return None
+    return nameservers
