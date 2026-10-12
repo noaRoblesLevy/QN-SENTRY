@@ -6,6 +6,10 @@
 - [User Guide](user-guide.md): clients and domains, running a scan, reading findings, risk score and report
 - [Known Issues and Difficult Points](known-issues.md): limitations, troubleshooting, and what was hard to build
 
+## Report
+
+- [Final report (draft)](report/report.md): the report of section 9.2, written alongside the project
+
 ## Project overview
 
 The blueprint of the project: what we build, why, and how.
