@@ -97,7 +97,7 @@ Three checks, each allowed to fail without losing the others:
 
 The module checks business addresses from the scan context against a **pluggable breach source**: a local, fictitious dataset (default, used in the demo) or Have I Been Pwned (#13). Only the breach name, date and the *kinds* of data are stored, never the leaked data. A breach with passwords or malware-stolen credentials is `high`, one with other personal data `medium`, a spam list `low`; fabricated breaches are left out. For HIBP, a temporary error skips one address instead of the whole module, the rate limit is respected (`Retry-After` on HTTP 429), and HIBP is credited as the source.
 
-**TO COMPLETE**: addresses derived from author names and the naming convention (#12), with the result on BadSecurityInc.
+**Derived addresses (#12).** Most employees never publish their address, but their name is in the metadata of a document. When the Metadata module has detected the company's address convention (e.g. `firstname.lastname`) from the addresses it found, the Breach module derives the likely address of every author without a published one. Multi-word last names ("Van den Broeck") can be written joined or separated; when the documents do not show which, both are tried. A derived address is only stored when it appears in a breach, and the finding says it was derived and from which name and convention, so an address that does not exist never becomes a finding. Without a detected convention nothing is derived: a guess without evidence would check addresses that probably do not exist. On BadSecurityInc this finds `pieter.mertens@badsecurityinc.be` (`high`), derived from the author of the annual report, an address published nowhere.
 
 ### 2.5 Risk score
 
@@ -106,7 +106,8 @@ One number per scan and per client, so management sees at a glance how exposed t
 - Each finding adds points by severity (critical 25, high 10, medium 4, low 1, info 0), and `score = 100 × (1 − e^(−points/50))`. A plain sum would reach 100 after a few findings; an average would drop when harmless findings are added. This curve has neither problem and never decreases when a finding is added.
 - The score is at least the floor of the worst finding (critical 75, high 50, medium 25), decided in review: without it one critical finding scored 39, "moderate", while critical means "fix immediately".
 - A partial scan keeps its score but is marked incomplete; a running or failed scan has none.
-- The score is computed from the findings when requested, not stored, because there were no migrations yet; storing it is #59 now that Alembic is in.
+- A scan with warnings, a partial scan or one with a module that could not check everything keeps its score but is marked incomplete (an asterisk in the dashboard), so a missing check never looks like a low risk.
+- The score is stored when the scan finishes, with the version of the method (#59). Reading it never loads the findings, so the client list stays fast as the history grows, and when the weights change, old scans keep the score they got and show which method computed it.
 
 ### 2.6 PDF report
 
@@ -116,6 +117,8 @@ The report (#17) is written for management: a summary in plain language, the tot
 
 | Measure | Where |
 |---|---|
+| A domain is only scanned after the user confirms permission **and** proves control with a DNS TXT record derived from a secret (HMAC), checked again at every scan | `verification.py`, domains and scans API (#3, #48) |
+| An active port scan only reaches addresses the user approved per domain, that the scan found again, and that do not belong to a CDN or shared hosting | `ScanContext.port_scan_targets()` (#81, #5) |
 | Scan results are deleted after 90 days, also stuck scans, every night and when the worker starts | `worker/retention.py` (#46) |
 | Documents only exist in a temporary folder during the analysis | Metadata module |
 | Breach data: only names, dates and kinds of data | Breach module |
@@ -131,7 +134,7 @@ The full legal and ethical framework is chapter 5 of the project documentation.
 - **Reviews:** every change went through a pull request reviewed by the other team member, who also ran it, merged it with `main` and probed edge cases. Many real bugs were found this way (chapter 3).
 - **Integration tests** in Docker Compose of all open pull requests together, on separate ports and volumes.
 - **Detection rate** against the planted weaknesses (chapter 5).
-- **TO COMPLETE** *(Quinten, #67)*: continuous integration on every pull request.
+- **Continuous integration** *(set up by Quinten, #75)*: every pull request runs the tests, pyflakes, a check that the migrations match the models (against PostgreSQL, also running the API tests) and the dashboard lint and build. `main` is protected: the three checks must pass, the branch must be up to date with `main`, and one approving review is required.
 
 ---
 
@@ -146,7 +149,7 @@ The problems that cost the most time, how we found them and what we changed. The
 | crt.sh unreliable | HTTP 502 errors and new certificates missing for 14 hours | Overloaded free service with indexing delay | Cert Spotter first, valid certificates only, uncertain answers not reported as clean, circuit breaker (#49) |
 | Office documents gave no metadata *(Quinten)* | Testing against the real website | exiftool needs the Perl library Archive::Zip to look inside `.docx` and `.xlsx` | Install `libarchive-zip-perl` in the worker image |
 | Broken JSON lines from katana *(Quinten)* | Testing against the real website | `str.splitlines()` also splits on U+0085, which appeared in binary response bodies | `split("\n")` and `-omit-body` |
-| Redirects reach other hosts *(Quinten)* | Review with two local servers, one playing a third party | katana and `urlopen` follow redirects before the host is checked | Open, #66; chapter 5.2 states the gap |
+| Redirects reach other hosts *(Quinten)* | Review with two local servers, one playing a third party | katana and `urlopen` follow redirects before the host is checked | Redirects are no longer followed (#66, #71) |
 | A detection rate that could be gamed | Review of the measurement | One finding could tick off two expected entries, and reporting everything would score 100% | Maximum bipartite matching, and precision next to recall (#47) |
 | Report unreadable for homoglyphs | Review: "bаdsecurityinc.be" printed as "b■dsecurityinc.be" | The built-in PDF fonts only cover Latin | Bundled DejaVu fonts (#17) |
 | GDPR clean-up kept stuck scans forever | Review with a 100-day-old `running` scan | Only finished scans were deleted | Also delete queued or running scans older than the scan timeout (#46) |
@@ -154,7 +157,13 @@ The problems that cost the most time, how we found them and what we changed. The
 | Port conflicts with other projects on the same laptop | `port is already allocated` | Other Compose projects on 8000 and 8080 | `docker-compose.override.yml` with `!override` |
 | PDF files corrupted in Git | A committed test document did not open | Line-ending conversion of binary files | `*.pdf binary` and `*.ttf binary` in `.gitattributes` |
 
-**TO COMPLETE**: problems of the Attack Surface module and the test VM *(Quinten)*, and of the last weeks.
+| A scan that hangs for no reason | Metadata module sometimes never finished | katana checks for updates at every start, and that request could hang | `-duc` on every ProjectDiscovery tool (#76) |
+| Phishing module takes over 15 minutes and skips DKIM | Real scan on one network, 5 seconds on another | Docker's DNS let every name that does not exist time out (5 s) instead of answering; phishing looks up hundreds of them | Public resolvers by default, `DNS_SERVERS` setting, fallback to the container's DNS when a network blocks them (#80) |
+| "0 subdomains" without network *(Quinten)* | Review: the module run with `--network none` | subfinder and dnsx exit with 0 when they reach nothing | Read their error output: no DNS fails the module, failed sources become a warning (#4) |
+| An approval for an address the client no longer uses *(Quinten)* | Review with a test: the address changed between two scans | Approvals were kept per address forever, and cloud addresses are reused | A port scan only targets approved addresses found again in the same scan (#81) |
+| A blocked network looks like a closed server *(Quinten)* | Review in a lab network with `--network none` | naabu exits with 0 when no connection is possible | A warning when an approved address has no open port (#5) |
+
+**TO COMPLETE**: problems of the test VM *(Quinten)* and of the last weeks.
 
 ---
 
@@ -212,6 +221,8 @@ The test environment BadSecurityInc contains weaknesses we planted on purpose; t
 | Measured | Scan | Detection rate (recall) | Expected severity | Precision | Not yet measurable |
 |---|---|---|---|---|---|
 | 01/10/2026 | `main` + open PRs #49 to #54 | 16/16 (100%) | 100% | 100% | 12 entries (Attack Surface, addresses from #8 and #12) |
+| 08/10/2026 | `main` after merging #49 to #77 | 24/24 (100%) | 100% | 100% | 5 entries (Attack Surface) |
+| 09/10/2026 | `main` with subdomains (#4) | 25/25 (100%) | 100% | 100% | 4 entries (the test VM #2, web services #6) |
 | **TO COMPLETE** | final version after 25/10 | | | | |
 
 A scan without the certificate check (#49) scored 15/16 with the certificate reported as missed, which shows the measurement detects a missing capability.
@@ -222,11 +233,11 @@ A scan without the certificate check (#49) scored 15/16 with the certificate rep
 
 ### 5.3 Weaknesses
 
-**TO COMPLETE**; candidates: no authentication yet; ownership verification and allowlist (#3, #48); dependence on free external services; breach coverage limited to published and derived addresses.
+**TO COMPLETE**; candidates: no authentication yet (#20); dependence on free external services (Certificate Transparency, passive DNS sources) that are sometimes slow or down; breach coverage limited to published and derived addresses.
 
 ### 5.4 Future work
 
-Scheduled scans and change detection between scans, alerts for new high-risk findings, live Certificate Transparency monitoring, the HIBP domain search for verified domains (#63), storing the risk score (#59).
+Scheduled scans and change detection between scans, alerts for new high-risk findings, live Certificate Transparency monitoring, the HIBP domain search for verified domains (#63), and remembering which addresses a user deliberately excluded from the port scan, so they count as a scope choice instead of a warning (#86).
 
 ### 5.5 Self-reflection
 
@@ -243,7 +254,7 @@ The weekly timesheets (who, what, when, hours) are on Google Drive. **TO COMPLET
 | Week | Planned (chapter 7) | Reached |
 |---|---|---|
 | 1 (28/09 to 04/10) | Domains, data model and finding format, Compose skeleton, modules as command-line proofs of concept | Data contract (26/09), walking skeleton end to end (28/09), dashboard with mock API (28/09), test website and lookalike online (29/09), Phishing, Metadata and Breach modules merged (28/09 to 30/09), PDF report, risk score, retention and detection rate in review (30/09), migrations (01/10). Well ahead of the planning for the platform; Attack Surface and the test VM behind |
-| 2 (05/10 to 11/10) | **TO COMPLETE** | |
+| 2 (05/10 to 11/10) | Modules write findings to PostgreSQL; Celery workers and Redis operational; BadSecurityInc target server online with first planted findings | The first two were already reached in week 1. Also done: permission and ownership verification (#3, #48, a week 4 *Should*), warnings per module (#32), continuous integration and branch protection, email addresses and derived breach addresses (#8, #12), installation and user guides, subdomains and port scan with per-address consent (#4, #5, #81), public DNS resolvers (#80); detection rate 25/25. **Behind:** the target server (test VM, #2) is not online yet, so the planted services on it cannot be measured |
 | 3 (12/10 to 18/10) | End-to-end MVP | **TO COMPLETE** |
 | 4 (19/10 to 25/10) | Feature freeze | **TO COMPLETE** |
 | 5 (26/10 to 01/11) | Delivery | **TO COMPLETE** |
