@@ -1,5 +1,6 @@
 import { Link } from 'react-router'
 import type { Client } from '../types'
+import RiskBadge from './RiskBadge'
 import './ClientList.css'
 
 type ClientListProps = {
@@ -12,6 +13,7 @@ function ClientList({ clients }: ClientListProps) {
       <thead>
         <tr>
           <th scope="col">Client</th>
+          <th scope="col">Risk</th>
           <th scope="col">Domains</th>
           <th scope="col" className="numeric">
             Count
@@ -23,6 +25,9 @@ function ClientList({ clients }: ClientListProps) {
           <tr key={client.id}>
             <td>
               <Link to={`/clients/${client.id}`}>{client.name}</Link>
+            </td>
+            <td>
+              <RiskBadge risk={client} />
             </td>
             <td>
               {client.domains.length === 0 ? (

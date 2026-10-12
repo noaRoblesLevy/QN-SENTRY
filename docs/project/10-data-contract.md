@@ -29,7 +29,9 @@ Example of a complete finding:
   "severity": "high",
   "asset": "jan.peeters@badsecurityinc.be",
   "details": {
-    "origin": "derived from 'Jan Peeters' (first.last)",
+    "origin": "derived",
+    "derived_from": "Jan Peeters",
+    "convention": "first.last",
     "breaches": [
       { "name": "ExampleShop", "date": "2021-06-22", "data": ["Emails", "Passwords"] },
       { "name": "ExampleForum", "date": "2019-03-10", "data": ["Emails", "Usernames"] }
@@ -37,6 +39,8 @@ Example of a complete finding:
   }
 }
 ```
+
+For `breached_email`, `origin` is `"found publicly"` (the address is on the website) or `"derived"` (made from a name in document metadata with the company's convention, #12); a derived address also has `derived_from` and `convention`.
 
 ### 10.1.1 Finding Types
 
@@ -120,9 +124,13 @@ Modules share information through a scan context. The worker creates it at the s
 | Field | Type | Filled by | Example |
 |---|---|---|---|
 | `domain` | text | Worker, at the start of the scan | `badsecurityinc.be` |
+| `live_hosts` | list of `{name, ips, cdn}`; `cdn` is the CDN of the addresses (e.g. `cloudflare`) or empty | Attack Surface (#4, `cdn` since #5) | `[{"name": "www.badsecurityinc.be", "ips": ["76.76.21.21"], "cdn": null}]` |
+| `port_scan_ips` | list of text | Worker, from the domain's approvals (#81) | `["192.0.2.10"]` |
+| `port_scan_targets()` | `{ip: [host names]}`: approved, found again in this scan and not of a CDN | Computed from `port_scan_ips` and `live_hosts` | `{"192.0.2.10": ["dev.badsecurityinc.be"]}` |
 | `person_names` | list of text | Metadata | `["Jan Peeters", "Sofie Maes"]` |
 | `emails` | list of text | Metadata | `["info@badsecurityinc.be", "sofie.maes@badsecurityinc.be"]` |
 | `email_convention` | text, or empty if unknown | Metadata | `first.last` |
+| `last_name_style` | `joined`, `separated`, or empty if unknown | Metadata | `joined` (`lotte.vandenbroeck@`) |
 
 The context also has a `warnings` list with `warn()` for the module that is running (10.3.1). It is not shared between modules: the worker empties it before each module, stores it with that module's run, and leaves it out of the context stored with the scan.
 
@@ -172,6 +180,13 @@ Names become the parts of an email address with one shared function, built in #8
 
 The first-word rule is a heuristic: "Anne Marie Peeters" could also be first name "Anne Marie". Joining a multi-word last name is the most common style, but some companies use `sofie.van.den.broeck@`. The Metadata module (#8) therefore learns the style from the real addresses it finds: when a published address contains a multi-word last name, its style is used. Only when there is no such example does the Breach module (#12) try both variants, so the extra lookup is only spent when the evidence is missing.
 
+How the Metadata module detects the convention (`backend/qnsentry/modules/metadata/emails.py`, the shared function is `backend/qnsentry/modules/names.py`):
+
+- The published addresses are the addresses of the client's domain on the crawled web pages (`mailto:` links and text).
+- For every convention it counts the author names from the documents that give a published address; for a last name of several words both styles are tried, which sets `last_name_style`.
+- The convention with the most matches wins, but only with **at least two** names: one match can be chance. On a tie, the convention that comes first in 10.4.2 wins.
+- On the test website, 6 of the 7 authors match `first.last` with `joined` last names; the seventh (Pieter Mertens) has no published address, which is the case #12 is for.
+
 ## 10.5 API Endpoints
 
 The dashboard communicates with the backend through these REST endpoints. All endpoints return JSON.
@@ -182,9 +197,14 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `POST` | `/api/clients` | Create a client |
 | `GET` | `/api/clients/{id}` | Get a client with its domains and their scans |
 | `POST` | `/api/clients/{id}/domains` | Add a domain to a client |
+| `POST` | `/api/domains/{id}/permission` | Confirm permission for a domain added before #3 |
+| `POST` | `/api/domains/{id}/verify` | Look up the TXT record and mark the domain verified (#48) |
+| `GET` | `/api/domains/{id}/addresses` | The addresses the latest scan found, and which may get a port scan (#81) |
+| `PUT` | `/api/domains/{id}/port-scan` | Set the addresses that may get a port scan (#81) |
 | `POST` | `/api/domains/{id}/scans` | Start a scan for a domain |
 | `GET` | `/api/scans/{id}` | Get the scan status and the status per module |
 | `GET` | `/api/scans/{id}/findings` | Get the findings of a scan |
+| `GET` | `/api/scans/{id}/report.pdf` | Download the PDF summary report of a finished scan (#17) |
 
 Example response of `GET /api/scans/7`:
 
@@ -219,26 +239,34 @@ These are added by their own issues and are not part of the walking skeleton (#1
 | Endpoint | Issue |
 |---|---|
 | Approve a domain on the target allowlist | #3 |
-| Download the PDF report of a scan | #17 |
 | Log in | #20 |
 
 ### 10.5.3 Request and Response Bodies
 
 | Endpoint | Request body | Success | Response |
 |---|---|---|---|
-| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`) |
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`), `risk_score`, `risk_level`, `risk_complete` (10.7) |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
-| `GET /api/clients/{id}` | | `200` | The client; every domain also has `scans` (`id`, `status`, `created_at`), newest first |
-| `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be"}` | `201` | The new domain: `id`, `name` |
+| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level` and `risk_complete`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`), newest first |
+| `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be", "permission_confirmed": true}` | `201` | The new domain: `id`, `name`, `permission_confirmed` (`true`), `verified` (`false`), `verification_record` |
+| `POST /api/domains/{id}/permission` | | `200` | The domain with `permission_confirmed: true` |
+| `POST /api/domains/{id}/verify` | | `200` | The domain with `verified: true`; `409` when the record is not found, `503` when the DNS lookup failed |
+| `GET /api/domains/{id}/addresses` | | `200` | List of `ip`, `hosts` (names that resolved to it in the latest scan) and `approved` |
+| `PUT /api/domains/{id}/port-scan` | `{"ips": ["192.0.2.10"]}` | `200` | The addresses as above. Replaces the approvals; `[]` clears them. `403` for a domain that is not verified, `422` for an invalid address or one the latest scan did not find for the domain |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
-| `GET /api/scans/{id}` | | `200` | See the example above |
+| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level` and `risk_complete` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
+| `GET /api/scans/{id}/report.pdf` | | `200` | `application/pdf`, as a download; `409` while the scan is `queued` or `running` |
 
 Names are trimmed. Domain names are stored in lowercase without a trailing dot and must be a plain domain name (`badsecurityinc.be`, not `https://badsecurityinc.be/`).
 
 ### 10.5.4 Rules and Errors
 
 - **A domain belongs to one client only.** Adding a domain that already exists, for any client, returns `409`.
+- **Permission is confirmed when a domain is added (#3).** `permission_confirmed` must be `true`, otherwise `422`. A domain added before this rule existed is confirmed with `POST /api/domains/{id}/permission`.
+- **Ownership is proven with a DNS TXT record (#48).** The domain gets a record `qn-sentry-verify=<token>`; the token is an HMAC of the domain name with `DOMAIN_VERIFICATION_SECRET`, so the same installation always asks for the same record. `POST /api/domains/{id}/verify` looks up the TXT records of the domain: an exact match marks it verified, no match gives `409`, a failed lookup `503`.
+- **Only confirmed and verified domains can be scanned, and the record is checked again at every scan.** Otherwise starting a scan returns `403` with what to do. A client that removes the TXT record withdraws its permission: the scan is refused with `403` and the domain is no longer verified, so the dashboard shows the verification step again. A failed lookup at that moment gives `503` and starts no scan, without changing the verification. This is enforced by the API, not only by the dashboard.
+- **A port scan only reaches addresses the user approved (#81).** The TXT record proves control of the domain, not of the servers behind it: a host can point to shared hosting. Only verified domains can approve addresses, and only addresses their hosts resolved to in the latest finished scan; an approved address can be kept or withdrawn after the hosts moved, but not added. A port scan uses `ScanContext.port_scan_targets()`: approved **and** found again for a live host in that scan, so an address the hosts no longer point to is never scanned. An address of a known CDN is never port-scanned, also when approved: it is shared with many other websites. Addresses that are not scanned are counted in a warning of the module run (10.3.1), so the report and the risk score do not present them as checked. An approved address without any open port is a warning too: a network that blocks outgoing connections makes every server look closed. New domains and existing ones start with no approved address.
 - **One active scan per domain.** Starting a scan while another scan of that domain is `queued` or `running` returns `409`.
 - **Stuck scans do not block their domain.** A scan still `queued` or `running` after `SCAN_TIMEOUT_MINUTES` (default 120) is marked `failed` when a new scan of that domain is started. Its unfinished modules get the reason as `error`.
 - **Interrupted scans end as `failed`.** If a worker stops during a scan, the scan is marked `failed` ("The worker stopped during this scan") instead of being run again, so findings are never stored twice.
@@ -247,9 +275,10 @@ Names are trimmed. Domain names are stored in lowercase without a trailing dot a
 | Status | When | Example `detail` |
 |---|---|---|
 | `404` | The client, domain or scan does not exist | `Scan not found` |
+| `403` | The domain may not be scanned yet (not confirmed or not verified) | `Verify that you control badsecurityinc.be first: add the TXT record qn-sentry-verify=... to its DNS and click Verify.` |
 | `409` | The request conflicts with the rules above | `A scan is already running for this domain.` |
 | `422` | The request body is invalid | `Enter a valid domain name, e.g. example.be` |
-| `503` | The scan could not be queued (Redis unavailable); the scan is marked `failed` | `The scan queue is unavailable. Try again later.` |
+| `503` | The scan could not be queued (Redis unavailable), or the DNS lookup of a verification failed | `The scan queue is unavailable. Try again later.` |
 
 ## 10.6 Decisions
 
@@ -261,3 +290,55 @@ The open questions of the first version were decided in #32:
 | Who writes `description` | Each module, following 10.1.2 |
 | Combined findings | The module decides within its own area, see 10.2 |
 | Partial failures of a module | Warnings per module run, see 10.3.1 |
+
+## 10.7 Risk Score
+
+One number from 0 to 100 that summarises a scan for management (#19). Agreed in the review of #53; the values live in one place (`backend/qnsentry/risk.py`).
+
+1. Every finding adds points by severity:
+
+| Severity | Points |
+|---|---|
+| `critical` | 25 |
+| `high` | 10 |
+| `medium` | 4 |
+| `low` | 1 |
+| `info` | 0 |
+
+2. `curve = 100 × (1 − e^(−points / 50))`, rounded.
+3. `score = max(curve, floor of the worst finding)`:
+
+| Worst finding | Floor |
+|---|---|
+| `critical` | 75 (very high) |
+| `high` | 50 (high) |
+| `medium` | 25 (moderate) |
+| `low`, `info` | 0 |
+
+The curve gives diminishing returns: the first serious findings raise the score the most, the score never exceeds 100, and adding a finding never lowers it. A plain sum would reach 100 after a few findings and stop telling anything apart; an average would drop when harmless findings are added.
+
+The floor makes the level match the worst finding: with the curve alone, one critical finding ("fix immediately", 10.2) would score 39 "moderate", and a manager who only reads the level would be misled. Above the floor the curve decides, so many findings still weigh more than one.
+
+| Score | Level (`risk_level`) |
+|---|---|
+| 0 to 24 | `low` |
+| 25 to 49 | `moderate` |
+| 50 to 74 | `high` |
+| 75 to 100 | `very_high` |
+
+| Example | Points | Score |
+|---|---|---|
+| Only `info` findings | 0 | 0, low |
+| One `medium` | 4 | 25, moderate (floor; curve 8) |
+| One `high` | 10 | 50, high (floor; curve 18) |
+| One `critical` | 25 | 75, very high (floor; curve 39) |
+| 20 `low` | 20 | 33, moderate (curve) |
+| Real scan of `badsecurityinc.be` on 30/09: 4 high, 4 medium, 8 low | 64 | 72, high (curve) |
+| Full ground truth of the test environment (#47): 7 high, 6 medium, 9 low | 103 | 87, very high (curve) |
+
+Rules:
+- **Scan:** only a `completed` or `partial` scan has a score. While a scan runs the findings are incomplete, and a `failed` scan would look safe because it found little: both return `null`.
+- **Incomplete scan:** a `partial` scan, a scan in which a module reported warnings (10.3.1), or a scan with a module that is still a placeholder, keeps its score with `risk_complete: false`, because a failed module or a failed part of one may have missed findings. The dashboard marks the score with an asterisk and shows how many modules completed without problems. `risk_complete` is `true` for a completed scan without warnings and `null` without a score.
+- **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score. `risk_complete` is `false` when the newest scored scan of **any** domain is incomplete: a finding missed on another domain could have raised the client's score.
+- The score is **computed from the stored findings** when it is requested, not stored separately, so it always matches the findings. Changing the weights therefore also changes the score of older scans.
+

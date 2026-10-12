@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { api } from '../api'
+import { FileDown } from 'lucide-react'
+import { api, reportUrl } from '../api'
 import FindingsTable from '../components/FindingsTable'
 import ModuleProgress from '../components/ModuleProgress'
 import PageHeader from '../components/PageHeader'
 import Panel from '../components/Panel'
 import RelativeTime from '../components/RelativeTime'
 import Select from '../components/Select'
+import RiskBadge from '../components/RiskBadge'
 import SeverityBadge from '../components/SeverityBadge'
 import StatPanel from '../components/StatPanel'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
@@ -52,7 +54,13 @@ function ScanView({ scanId }: { scanId: number }) {
   }
 
   const { scan, findings } = data
+  // Modules that completed without warnings and are not a placeholder (data contract 10.7)
+  const placeholders = new Set(findings.filter((f) => f.type === 'placeholder').map((f) => f.module))
+  const fullyChecked = scan.modules.filter(
+    (m) => m.status === 'completed' && m.warnings.length === 0 && !placeholders.has(m.module),
+  ).length
   const active = isScanActive(scan.status)
+  const report = reportUrl(scan.id)
   const visible = findings.filter(
     (f) => (moduleFilter === ALL || f.module === moduleFilter) && (severityFilter === ALL || f.severity === severityFilter),
   )
@@ -74,6 +82,17 @@ function ScanView({ scanId }: { scanId: number }) {
             </span>
           </>
         }
+        actions={
+          // The report exists once the scan has finished, and not for a failed scan (issue #17)
+          !active &&
+          scan.status !== 'failed' &&
+          report && (
+            <a className="button button-primary" href={report} download>
+              <FileDown size={16} strokeWidth={1.5} aria-hidden="true" />
+              Download report
+            </a>
+          )
+        }
       />
 
       {/* A failed poll keeps the last data on screen and shows why it is not updating */}
@@ -84,6 +103,17 @@ function ScanView({ scanId }: { scanId: number }) {
       )}
 
       <div className="stat-grid">
+        {/* Risk score (#19): computed by the backend once the scan has finished */}
+        <div className="stat-panel">
+          <div className="stat-label">Risk score</div>
+          <div className="stat-value">{scan.risk_score ?? '-'}</div>
+          <RiskBadge risk={scan} showScore={false} />
+          {scan.risk_complete === false && (
+            <div className="stat-note">
+              Based on {fullyChecked} of {scan.modules.length} modules without problems
+            </div>
+          )}
+        </div>
         <StatPanel label="Findings" value={findings.length} />
         {SEVERITIES.map((severity) => (
           <StatPanel

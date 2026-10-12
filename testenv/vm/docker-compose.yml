@@ -1,0 +1,34 @@
+# BadSecurityInc: the fictitious company QN-Sentry is tested against (issue #2).
+# Everything here is a decoy: it looks outdated or exposed, but is not.
+#
+# On the VM this file is used as is: ports 80, 443 and 2222, nothing else.
+# Locally, add docker-compose.local.yml (see testenv/README.md).
+services:
+  staging:
+    image: caddy:2.11.4-alpine
+    environment:
+      STAGING_ADDRESS: ${STAGING_ADDRESS}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./staging:/srv/staging:ro
+      - caddy-data:/data
+    logging: &limited-logs
+      # Bots on the internet connect all the time: keep the container logs small
+      driver: local
+      options:
+        max-size: "1m"
+        max-file: "3"
+    restart: unless-stopped
+
+  decoy-ssh:
+    build: ./decoy-ssh
+    ports:
+      - "2222:2222"
+    logging: *limited-logs
+    restart: unless-stopped
+
+volumes:
+  caddy-data:

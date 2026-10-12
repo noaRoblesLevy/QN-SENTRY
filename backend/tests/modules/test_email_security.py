@@ -200,9 +200,11 @@ def test_one_timeout_skips_only_that_check(monkeypatch):
         fake_dns({DOMAIN: ["v=spf1 +all"]}, failing={f"_dmarc.{DOMAIN}"}),
     )
 
-    checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])]
+    warnings = []
+    checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"], warn=warnings.append)]
 
     assert checks == ["spf", "dkim"]
+    assert warnings == ["The DMARC record could not be looked up, so DMARC was not checked"]
 
 
 def test_every_lookup_failing_raises(monkeypatch):
@@ -318,9 +320,14 @@ def test_failing_include_lookup_skips_only_the_count(monkeypatch):
         fake_dns({DOMAIN: ["v=spf1 include:_spf.down.example ~all"]}, failing={"_spf.down.example"}),
     )
 
-    checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"])]
+    warnings = []
+    checks = [f.details["check"] for f in check_email_security(DOMAIN, nameservers=["192.0.2.53"], warn=warnings.append)]
 
     assert checks == ["spf", "dmarc", "dkim"]
+    # Promised in #57: a failing include lookup is a warning, not only a log line
+    assert warnings == [
+        "A record included by the SPF record could not be looked up, so the 10-lookup limit of SPF was not checked"
+    ]
 
 
 @pytest.mark.parametrize(

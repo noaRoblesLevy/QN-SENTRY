@@ -15,6 +15,7 @@ MAX_BYTES = 20 * 1024 * 1024  # 20 MB per document
 CHUNK = 64 * 1024
 USER_AGENT = "QN-Sentry metadata check"
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+OFF_HOST_REASON = "were skipped because they redirect to another website"
 
 
 def download_documents(
@@ -47,13 +48,42 @@ def download_documents(
     return downloaded
 
 
+class OffHostRedirect(Exception):
+    """The document redirects to a host outside the client's website."""
+
+
+class SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows redirects within the allowed hosts only (#66).
+
+    The check runs before the redirect is followed, so another host never receives a
+    request: checking the final URL afterwards would be too late.
+    """
+
+    def __init__(self, allowed_hosts: set[str]):
+        super().__init__()
+        self.allowed_hosts = allowed_hosts
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlparse(newurl).hostname not in self.allowed_hosts:
+            fp.close()
+            raise OffHostRedirect(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def download(url: str, target: Path, allowed_hosts: set[str]) -> str | None:
     """Download one document; the reason it was skipped, or None when it was downloaded."""
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    opener = urllib.request.build_opener(SameHostRedirects(allowed_hosts))
+    try:
+        response = opener.open(request, timeout=30)
+    except OffHostRedirect as redirect:
+        log.warning("Skipped %s: redirects to another host (%s)", url, redirect)
+        return OFF_HOST_REASON
+    with response:
+        # SameHostRedirects already refuses other hosts; this only guards against a change there
         if urlparse(response.geturl()).hostname not in allowed_hosts:
             log.warning("Skipped %s: redirects to another host", url)
-            return "were skipped because they redirect to another website"
+            return OFF_HOST_REASON
         size = 0
         with open(target, "wb") as file:
             while chunk := response.read(CHUNK):

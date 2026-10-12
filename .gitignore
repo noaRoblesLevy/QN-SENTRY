@@ -34,3 +34,6 @@ Thumbs.db
 
 # Vercel CLI project links (testenv/website, testenv/lookalike)
 .vercel/
+
+# Crash dumps of Git Bash on Windows
+*.stackdump

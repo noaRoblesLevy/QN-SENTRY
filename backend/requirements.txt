@@ -9,3 +9,6 @@ alembic>=1.14
 # Phishing module (#9). dnstwist is pinned: the module uses its Scanner class, which is not an official API.
 dnstwist==20250130
 dnspython>=2.6
+
+# PDF report (#17)
+reportlab>=4.0

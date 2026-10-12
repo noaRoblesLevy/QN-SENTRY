@@ -19,7 +19,8 @@
     },
     "PretendSpamList": {
       "date": "2022-11-30",
-      "data_classes": ["Email addresses"]
+      "data_classes": ["Email addresses"],
+      "flags": ["spam_list"]
     }
   },
   "accounts": {

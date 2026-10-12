@@ -70,7 +70,9 @@ def handle_unclaimed_scan(db: Session, scan_id: int) -> None:
 
 
 def run_modules(db: Session, scan: models.Scan) -> None:
-    context = ScanContext(domain=scan.domain.name)
+    # The approvals are read when the scan starts, so the scan context records which
+    # addresses this scan was allowed to port-scan (#81)
+    context = ScanContext(domain=scan.domain.name, port_scan_ips=list(scan.domain.port_scan_ips))
     any_failed = False
 
     for module_run in scan.module_runs:

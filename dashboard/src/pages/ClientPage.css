@@ -12,6 +12,57 @@
   gap: var(--space-2);
 }
 
+.ownership {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ownership-verified {
+  color: var(--ink);
+}
+
+/* The verification step sits right under its domain, without a line in between */
+.domains-table tr.needs-check td {
+  border-bottom: none;
+}
+
+.verify-row td {
+  height: auto;
+  padding-top: 0;
+  padding-bottom: var(--space-4);
+}
+
+.verify-step {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 72ch;
+}
+
+.verify-step p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.verify-step > .button {
+  justify-self: start;
+}
+
+.verify-record {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.verify-record code {
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 4px);
+  overflow-wrap: anywhere;
+}
+
 .inline-alert {
   margin: 0;
   padding: var(--space-3) var(--space-4);
@@ -35,6 +86,15 @@
 
   .domains-table tbody tr:last-child {
     border-bottom: none;
+  }
+
+  /* A domain and its verification step belong together */
+  .domains-table tr.needs-check {
+    border-bottom: none;
+  }
+
+  .domains-table tr.verify-row td {
+    grid-column: 1 / -1;
   }
 
   .domains-table td {

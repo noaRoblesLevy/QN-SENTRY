@@ -53,10 +53,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         module = BreachModule(lambda: get_breach_source(args.source, args.dataset))
-        findings = module.run(ScanContext(domain="", emails=emails))
+        context = ScanContext(domain="", emails=emails)
+        findings = module.run(context)
     except (RuntimeError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
+
+    for warning in context.warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
 
     if args.json:
         print(json.dumps([asdict(f) for f in findings], indent=2, ensure_ascii=False))

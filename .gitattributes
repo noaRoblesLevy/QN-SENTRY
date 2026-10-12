@@ -2,6 +2,7 @@
 # NUL bytes, so Git would otherwise treat them as text and corrupt them on Windows
 # (core.autocrlf) by turning LF into CRLF.
 *.pdf  binary
+*.ttf  binary
 *.docx binary
 *.xlsx binary
 *.pptx binary

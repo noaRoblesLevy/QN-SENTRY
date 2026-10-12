@@ -56,7 +56,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{f.severity.upper():<8}  {f.title}")
         if context.person_names:
             print(f"\nPeople for the scan context: {', '.join(context.person_names)}")
-    print(f"{len(findings)} document(s) with metadata findings in {elapsed:.0f} s", file=sys.stderr)
+        if context.emails:
+            print(f"Email addresses for the scan context: {', '.join(context.emails)}")
+        if context.email_convention:
+            style = context.last_name_style or "no example"
+            print(f"Email convention: {context.email_convention} (last names of several words: {style})")
+    print(f"{len(findings)} metadata finding(s) in {elapsed:.0f} s", file=sys.stderr)
     return 0
 
 

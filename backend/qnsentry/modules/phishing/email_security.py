@@ -48,12 +48,17 @@ class SpfResult:
 
 
 def check_email_security(
-    domain: str, *, nameservers: list[str] | None = None, timeout: float = 5.0
+    domain: str,
+    *,
+    nameservers: list[str] | None = None,
+    timeout: float = 5.0,
+    warn: Callable[[str], None] = lambda message: None,
 ) -> list[Finding]:
     """SPF, DMARC and DKIM findings for `domain`.
 
     A failing lookup skips only that check (data contract 10.3.1: partial failure).
     If SPF and DMARC both fail, the resolver is unusable and the function raises.
+    Skipped checks are reported to `warn`.
     """
     resolver = _resolver(nameservers, timeout)
     findings: list[Finding] = []
@@ -67,6 +72,7 @@ def check_email_security(
         findings += spf.findings
     except LookupFailed as e:
         log.warning("SPF check of %s skipped: %s", domain, e)
+        warn("The SPF record could not be looked up, so SPF was not checked")
         failed.append("SPF")
 
     if len(spf_records) == 1:
@@ -79,12 +85,17 @@ def check_email_security(
                 spf.allows_everyone = True
         except LookupFailed as e:
             log.warning("SPF lookup count of %s skipped: %s", domain, e)
+            warn(
+                "A record included by the SPF record could not be looked up, so the 10-lookup "
+                "limit of SPF was not checked"
+            )
 
     try:
         dmarc_records = txt_records(resolver, f"_dmarc.{domain}")
         findings += evaluate_dmarc(domain, dmarc_records, spf_allows_everyone=spf.allows_everyone)
     except LookupFailed as e:
         log.warning("DMARC check of %s skipped: %s", domain, e)
+        warn("The DMARC record could not be looked up, so DMARC was not checked")
         failed.append("DMARC")
 
     if len(failed) == 2:
@@ -96,6 +107,7 @@ def check_email_security(
         findings += evaluate_dkim(domain, dkim_keys(resolver, domain))
     except LookupFailed as e:
         log.warning("DKIM check of %s skipped: %s", domain, e)
+        warn("The DKIM records could not be looked up, so DKIM was not checked")
 
     return findings
 

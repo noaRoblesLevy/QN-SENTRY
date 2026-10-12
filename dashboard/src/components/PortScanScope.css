@@ -1,0 +1,50 @@
+.port-scan-domain + .port-scan-domain {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.port-scan-domain h3 {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+}
+
+.port-scan-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.port-scan-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.port-scan-list input {
+  margin-top: 3px;
+}
+
+.port-scan-list label {
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.port-scan-statement {
+  font-size: 14px;
+}
+
+.port-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.port-scan-empty {
+  margin: 0;
+}
