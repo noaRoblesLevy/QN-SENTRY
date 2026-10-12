@@ -247,14 +247,14 @@ These are added by their own issues and are not part of the walking skeleton (#1
 |---|---|---|---|
 | `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`), `risk_score`, `risk_level`, `risk_complete` (10.7) |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
-| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level` and `risk_complete`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`), newest first |
+| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level` and `risk_complete`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`, `risk_method`), newest first |
 | `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be", "permission_confirmed": true}` | `201` | The new domain: `id`, `name`, `permission_confirmed` (`true`), `verified` (`false`), `verification_record` |
 | `POST /api/domains/{id}/permission` | | `200` | The domain with `permission_confirmed: true` |
 | `POST /api/domains/{id}/verify` | | `200` | The domain with `verified: true`; `409` when the record is not found, `503` when the DNS lookup failed |
 | `GET /api/domains/{id}/addresses` | | `200` | List of `ip`, `hosts` (names that resolved to it in the latest scan) and `approved` |
 | `PUT /api/domains/{id}/port-scan` | `{"ips": ["192.0.2.10"]}` | `200` | The addresses as above. Replaces the approvals; `[]` clears them. `403` for a domain that is not verified, `422` for an invalid address or one the latest scan did not find for the domain |
 | `POST /api/domains/{id}/scans` | | `201` | The new scan: `id`, `status` (`queued`), `created_at` |
-| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level` and `risk_complete` (10.7) |
+| `GET /api/scans/{id}` | | `200` | See the example above, plus `risk_score`, `risk_level`, `risk_complete` and `risk_method` (10.7) |
 | `GET /api/scans/{id}/findings` | | `200` | List of findings in the format of 10.1, plus `id` and `created_at` |
 | `GET /api/scans/{id}/report.pdf` | | `200` | `application/pdf`, as a download; `409` while the scan is `queued` or `running` |
 
@@ -340,5 +340,6 @@ Rules:
 - **Scan:** only a `completed` or `partial` scan has a score. While a scan runs the findings are incomplete, and a `failed` scan would look safe because it found little: both return `null`.
 - **Incomplete scan:** a `partial` scan, a scan in which a module reported warnings (10.3.1), or a scan with a module that is still a placeholder, keeps its score with `risk_complete: false`, because a failed module or a failed part of one may have missed findings. The dashboard marks the score with an asterisk and shows how many modules completed without problems. `risk_complete` is `true` for a completed scan without warnings and `null` without a score.
 - **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score. `risk_complete` is `false` when the newest scored scan of **any** domain is incomplete: a finding missed on another domain could have raised the client's score.
-- The score is **computed from the stored findings** when it is requested, not stored separately, so it always matches the findings. Changing the weights therefore also changes the score of older scans.
+- The score is **stored when the scan finishes** (#59): the worker computes it from the findings at the end of the scan and keeps `risk_score`, `risk_level`, `risk_complete`, the points and `risk_method` on the scan. Reading a score never loads the findings, so the client list stays fast as the history grows. Scans made before #59 got their score in migration `0005`.
+- **Method version:** `risk_method` is `METHOD` in `risk.py` at the time of the scan (now `1`). Whoever changes the weights, the scale, the floors or the levels raises `METHOD`: old scans keep the score they got, and their method number shows it was computed differently. Scores of different methods are not compared without saying so.
 

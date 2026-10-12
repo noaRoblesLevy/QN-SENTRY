@@ -19,6 +19,8 @@ export type Risk = {
 }
 
 export type ScanSummary = Risk & {
+  // Version of the scoring method (#59); only sent for scans, not for clients
+  risk_method?: number | null
   id: number
   status: ScanStatus
   created_at: string
@@ -55,6 +57,7 @@ export type ModuleRun = {
 }
 
 export type Scan = Risk & {
+  risk_method?: number | null
   id: number
   domain: string
   status: ScanStatus
