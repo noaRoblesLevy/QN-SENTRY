@@ -206,6 +206,7 @@ def test_dnsx_uses_public_resolvers_and_reads_names_from_stdin(monkeypatch):
     [(command, stdin)] = commands
     assert command[command.index("-r") + 1] == subdomains.RESOLVERS
     assert "-duc" in command
+    assert "-cdn" in command  # from address ranges, for the port scan (#5)
     assert stdin == "badsecurityinc.be\nwww.badsecurityinc.be"
 
 
@@ -235,13 +236,16 @@ def test_module_reports_subdomains_and_fills_the_context(monkeypatch):
     [finding] = findings
     assert (finding.type, finding.asset, finding.severity) == ("subdomain", "www.badsecurityinc.be", Severity.INFO)
     assert finding.title == "Subdomain www.badsecurityinc.be resolves to 76.76.21.21"
-    assert finding.details == {"ips": ["76.76.21.21"], "cname": [], "sources": ["crtname"]}
+    assert finding.details == {"ips": ["76.76.21.21"], "cname": [], "sources": ["crtname"], "cdn": None}
     assert context.live_hosts == [
-        {"name": "badsecurityinc.be", "ips": ["76.76.21.21"]},
-        {"name": "www.badsecurityinc.be", "ips": ["76.76.21.21"]},
+        {"name": "badsecurityinc.be", "ips": ["76.76.21.21"], "cdn": None},
+        {"name": "www.badsecurityinc.be", "ips": ["76.76.21.21"], "cdn": None},
     ]
-    # Until #5 and #6: the module says it is not complete
-    assert context.warnings == ["Open ports and web services are not checked yet in this version of QN-Sentry"]
+    # Nothing approved, so no port scan (#5, #81); until #6 the module says it is not complete
+    assert context.warnings == [
+        "1 address(es) were not port-scanned because they were not confirmed",
+        "Web services are not checked yet in this version of QN-Sentry",
+    ]
 
 
 def test_many_addresses_are_shortened_in_the_title(monkeypatch):

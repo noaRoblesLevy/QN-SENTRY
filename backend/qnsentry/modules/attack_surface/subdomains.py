@@ -7,6 +7,8 @@
    rather than the container's DNS, which can be slow for names that do not exist.
 3. A wildcard record (*.example.be) makes every name resolve. One random name is resolved
    too: when it answers, names that only point to the wildcard's addresses are left out.
+4. dnsx also says which addresses belong to a known CDN (Cloudflare, Fastly, ...) from a list
+   of their address ranges, without contacting them. Those are never port-scanned (#5).
 """
 
 import json
@@ -33,6 +35,7 @@ class Host:
     ips: list[str] = field(default_factory=list)  # A and AAAA records
     cname: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)  # passive sources that listed the name
+    cdn: str | None = None  # the CDN its addresses belong to, e.g. "cloudflare"
 
 
 def passive_subdomains(domain: str) -> tuple[dict[str, list[str]], list[str]]:
@@ -94,6 +97,7 @@ def resolve(names: list[str]) -> tuple[dict[str, Host], int]:
     command = [
         "dnsx",
         "-json", "-a", "-aaaa", "-cname",
+        "-cdn",  # the CDN of the addresses, from address ranges: no extra requests
         "-silent", "-nc",
         "-retry", "2",
         "-r", RESOLVERS,
@@ -131,6 +135,8 @@ def parse_dnsx_output(output: str) -> dict[str, Host]:
         if entry.get("status_code", "NOERROR") != "NOERROR":
             continue
         host = hosts.setdefault(name, Host(name))
+        if entry.get("cdn"):
+            host.cdn = str(entry.get("cdn-name") or "cdn")
         for ip in (entry.get("a") or []) + (entry.get("aaaa") or []):
             if ip not in host.ips:
                 host.ips.append(ip)
