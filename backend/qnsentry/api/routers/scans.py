@@ -117,6 +117,7 @@ def get_scan(scan_id: int, db: Session = Depends(get_db)) -> ScanOut:
         risk_score=scan.risk_score,
         risk_level=scan.risk_level,
         risk_complete=scan.risk_complete,
+        risk_method=scan.risk_method,
     )
 
 

@@ -132,3 +132,17 @@ def test_the_approved_addresses_reach_the_modules(monkeypatch):
     # Stored with the scan: which addresses this scan was allowed to port-scan
     assert scan.context["port_scan_ips"] == ["192.0.2.10"]
 
+
+def test_the_risk_score_is_stored_when_the_scan_finishes(monkeypatch):
+    # #59: stored once by the worker, so the API does not load the findings for it
+    scan = run(monkeypatch, FakeModule("a", findings=[finding("one"), finding("two")]))
+
+    assert scan.status == ScanStatus.COMPLETED
+    assert (scan.risk_score, scan.risk_level, scan.risk_complete, scan.risk_points) == (4, "low", True, 2)
+
+
+def test_a_partial_scan_stores_an_incomplete_score(monkeypatch):
+    scan = run(monkeypatch, FakeModule("a", findings=[finding()]), FakeModule("b", error=RuntimeError("down")))
+
+    assert scan.status == ScanStatus.PARTIAL
+    assert (scan.risk_score, scan.risk_complete) == (2, False)

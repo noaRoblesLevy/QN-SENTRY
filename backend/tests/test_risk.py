@@ -4,7 +4,7 @@ import pytest
 
 from qnsentry.db import models
 from qnsentry.db.models import ScanStatus, Severity
-from qnsentry.risk import compute_risk, level_of
+from qnsentry.risk import METHOD, compute_risk, level_of
 
 
 def test_empty_or_only_informational_findings_score_zero():
@@ -65,13 +65,18 @@ def test_level_boundaries(score, level):
 # ---------- Scans and clients ----------
 
 
-def scan(status, *severities, scan_id=1, warnings=()):
-    return models.Scan(
+def scan(status, *severities, scan_id=1, warnings=(), placeholder=False):
+    """A scan as the worker leaves it: with its score stored (#59)."""
+    result = models.Scan(
         id=scan_id,
         status=status,
         findings=[models.Finding(severity=s) for s in severities],
         module_runs=[models.ModuleRun(module="phishing", warnings=list(warnings))],
     )
+    if placeholder:
+        result.findings.append(models.Finding(severity=Severity.INFO, type="placeholder"))
+    result.store_risk()
+    return result
 
 
 @pytest.mark.parametrize("status", [ScanStatus.QUEUED, ScanStatus.RUNNING, ScanStatus.FAILED])
@@ -148,9 +153,34 @@ def test_client_completeness_does_not_depend_on_domain_order(names):
 
 def test_a_scan_with_a_placeholder_module_is_incomplete():
     # Attack Surface is a placeholder until #4 to #6: it checked nothing
-    placeholder = scan(ScanStatus.COMPLETED, Severity.HIGH)
-    placeholder.findings.append(models.Finding(severity=Severity.INFO, type="placeholder"))
+    placeholder = scan(ScanStatus.COMPLETED, Severity.HIGH, placeholder=True)
 
     assert placeholder.risk_score == 50
     assert placeholder.risk_complete is False
 
+
+# ---------- Stored score (#59) ----------
+
+
+def test_the_stored_score_carries_the_method_version():
+    stored = scan(ScanStatus.COMPLETED, Severity.HIGH, Severity.MEDIUM)
+
+    assert (stored.risk_score, stored.risk_level, stored.risk_complete) == (50, "high", True)
+    assert stored.risk_points == 14
+    assert stored.risk_method == METHOD
+
+
+@pytest.mark.parametrize("status", [ScanStatus.QUEUED, ScanStatus.RUNNING, ScanStatus.FAILED])
+def test_nothing_is_stored_for_an_unfinished_or_failed_scan(status):
+    unscored = scan(status, Severity.HIGH)
+
+    assert (unscored.risk_score, unscored.risk_level, unscored.risk_complete, unscored.risk_method) == (None,) * 4
+
+
+def test_reading_the_score_does_not_use_the_findings():
+    # The point of #59: the API reads the columns, it never loads the findings for the score
+    stored = scan(ScanStatus.COMPLETED, Severity.CRITICAL)
+    stored.findings.clear()
+
+    assert stored.risk_score == 75
+    assert stored.risk.level == "very_high"

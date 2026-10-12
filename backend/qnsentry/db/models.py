@@ -6,7 +6,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, UniqueConstrain
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from qnsentry.risk import Risk, compute_risk
+from qnsentry.risk import METHOD, Risk, compute_risk
 
 
 class Base(DeclarativeBase):
@@ -174,6 +174,14 @@ class Scan(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Risk score (#19), stored by the worker when the scan finishes (#59), so reading it never
+    # loads the findings. All null while the scan runs and for a failed scan.
+    risk_score: Mapped[int | None]
+    risk_level: Mapped[str | None] = mapped_column(String(16))
+    risk_complete: Mapped[bool | None]
+    risk_points: Mapped[int | None]
+    # qnsentry.risk.METHOD at the time: a later change of the weights shows on old scans
+    risk_method: Mapped[int | None]
 
     domain: Mapped[Domain] = relationship(back_populates="scans")
     module_runs: Mapped[list["ModuleRun"]] = relationship(
@@ -185,6 +193,26 @@ class Scan(Base):
 
     @property
     def risk(self) -> Risk | None:
+        """The stored risk score (#59); None while the scan runs and for a failed scan."""
+        if self.risk_score is None:
+            return None
+        return Risk(
+            score=self.risk_score,
+            level=self.risk_level,
+            points=self.risk_points,
+            complete=bool(self.risk_complete),
+        )
+
+    def store_risk(self) -> None:
+        """Compute the risk score from the findings and store it on the scan (#59)."""
+        risk = self.computed_risk()
+        self.risk_score = risk.score if risk else None
+        self.risk_level = risk.level if risk else None
+        self.risk_complete = risk.complete if risk else None
+        self.risk_points = risk.points if risk else None
+        self.risk_method = METHOD if risk else None
+
+    def computed_risk(self) -> Risk | None:
         """Risk score of the scan (#19), computed from its findings.
 
         Only for a finished scan: while it runs the findings are incomplete, and a failed
@@ -200,18 +228,6 @@ class Scan(Base):
             and not any(run.warnings for run in self.module_runs)
             and not any(finding.type == "placeholder" for finding in self.findings),
         )
-
-    @property
-    def risk_score(self) -> int | None:
-        return self.risk.score if self.risk else None
-
-    @property
-    def risk_level(self) -> str | None:
-        return self.risk.level if self.risk else None
-
-    @property
-    def risk_complete(self) -> bool | None:
-        return self.risk.complete if self.risk else None
 
     def mark_failed(self, reason: str) -> None:
         """End the scan as failed; modules that had not finished get `reason` as error."""

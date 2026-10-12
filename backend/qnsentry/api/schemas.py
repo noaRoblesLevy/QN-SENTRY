@@ -83,6 +83,9 @@ class ScanSummary(BaseModel):
     risk_level: str | None = None
     # False when the score comes from a partial scan (a module failed)
     risk_complete: bool | None = None
+    # Version of the scoring method (#59): a score from an older method was computed with
+    # other weights
+    risk_method: int | None = None
 
 
 class DomainOut(BaseModel):
@@ -152,6 +155,7 @@ class ScanOut(BaseModel):
     risk_level: str | None = None
     # False when the score comes from a partial scan (a module failed)
     risk_complete: bool | None = None
+    risk_method: int | None = None
 
 
 class FindingOut(BaseModel):
