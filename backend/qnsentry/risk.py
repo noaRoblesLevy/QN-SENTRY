@@ -21,6 +21,9 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+# Stored with every score (#59). Raise it whenever WEIGHTS, SCALE, FLOORS or LEVELS change:
+# old scans keep the score they got, and the method number shows it was computed differently
+METHOD = 1
 WEIGHTS = {"critical": 25, "high": 10, "medium": 4, "low": 1, "info": 0}
 SCALE = 50
 # The score is at least the floor of the worst finding: its level then matches its severity

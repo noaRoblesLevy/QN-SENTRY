@@ -105,6 +105,8 @@ def run_modules(db: Session, scan: models.Scan) -> None:
     scan.context = {key: value for key, value in asdict(context).items() if key != "warnings"}
     scan.status = ScanStatus.PARTIAL if any_failed else ScanStatus.COMPLETED
     scan.finished_at = now()
+    # Stored once, so the API never has to load the findings for it (#59)
+    scan.store_risk()
     db.commit()
 
 
