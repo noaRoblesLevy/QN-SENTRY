@@ -130,7 +130,7 @@ The full legal and ethical framework is chapter 5 of the project documentation.
 
 ### 2.8 Quality: how we know it works
 
-- **Unit tests** without network: DNS, HTTP, the clock and external tools are replaced by fakes. 378 automated tests in total (15/10/2026): 346 that run without a network or database, and 32 API tests against a real PostgreSQL (run in continuous integration and locally with `QNSENTRY_TEST_DATABASE=1`). The interpretation functions (exiftool tags, SPF/DMARC records, the risk score) take plain data, so they are tested without the tools or the network.
+- **Unit tests** without network: DNS, HTTP, the clock and external tools are replaced by fakes. 422 automated tests in total (15/10/2026): 390 that run without a network or database, and 32 API tests against a real PostgreSQL (run in continuous integration and locally with `QNSENTRY_TEST_DATABASE=1`). The interpretation functions (exiftool tags, SPF/DMARC records, the risk score) take plain data, so they are tested without the tools or the network.
 - **Reviews:** every change went through a pull request reviewed by the other team member, who also ran it, merged it with `main` and probed edge cases. Many real bugs were found this way (chapter 3).
 - **Integration tests** in Docker Compose of all open pull requests together, on separate ports and volumes.
 - **Detection rate** against the planted weaknesses (chapter 5).
