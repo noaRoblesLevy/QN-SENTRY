@@ -196,7 +196,10 @@ The dashboard communicates with the backend through these REST endpoints. All en
 | `GET` | `/api/clients` | List all clients |
 | `POST` | `/api/clients` | Create a client |
 | `GET` | `/api/clients/{id}` | Get a client with its domains and their scans |
+| `PATCH` | `/api/clients/{id}` | Rename a client (#16) |
+| `DELETE` | `/api/clients/{id}` | Delete a client with all its domains and scans (#16) |
 | `POST` | `/api/clients/{id}/domains` | Add a domain to a client |
+| `DELETE` | `/api/domains/{id}` | Delete a domain with its scans (#16) |
 | `POST` | `/api/domains/{id}/permission` | Confirm permission for a domain added before #3 |
 | `POST` | `/api/domains/{id}/verify` | Look up the TXT record and mark the domain verified (#48) |
 | `GET` | `/api/domains/{id}/addresses` | The addresses the latest scan found, and which may get a port scan (#81) |
@@ -245,10 +248,13 @@ These are added by their own issues and are not part of the walking skeleton (#1
 
 | Endpoint | Request body | Success | Response |
 |---|---|---|---|
-| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`), `risk_score`, `risk_level`, `risk_complete` (10.7) |
+| `GET /api/clients` | | `200` | List of clients: `id`, `name`, `domains` (`id`, `name`, `permission_confirmed`, `verified`, `verification_record`), `risk_score`, `risk_level`, `risk_complete` (10.7), and `last_scan`: the newest scan of any of its domains (`id`, `domain_id`, `status`, `created_at`, `finished_at`), also when it is running or failed; `null` when no domain was scanned yet |
 | `POST /api/clients` | `{"name": "BadSecurityInc"}` | `201` | The new client, with an empty `domains` list |
-| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level` and `risk_complete`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`, `risk_method`), newest first |
+| `GET /api/clients/{id}` | | `200` | The client with `risk_score`, `risk_level`, `risk_complete` and `last_scan`; every domain also has `scans` (`id`, `status`, `created_at`, `risk_score`, `risk_level`, `risk_complete`, `risk_method`), newest first |
+| `PATCH /api/clients/{id}` | `{"name": "Bad Security Inc"}` | `200` | The client as in `GET /api/clients`; `422` for an empty name |
+| `DELETE /api/clients/{id}` | | `204` | No body. Deletes the client with its domains, scans, findings and port scan approvals; `409` while a scan of one of its domains is `queued` or `running` (a stuck scan, older than `SCAN_TIMEOUT_MINUTES`, does not count) |
 | `POST /api/clients/{id}/domains` | `{"name": "badsecurityinc.be", "permission_confirmed": true}` | `201` | The new domain: `id`, `name`, `permission_confirmed` (`true`), `verified` (`false`), `verification_record` |
+| `DELETE /api/domains/{id}` | | `204` | No body. Deletes the domain with its scans, findings and port scan approvals, with the same `409` rule. The name can then be added again, to any client, and needs a new permission and verification |
 | `POST /api/domains/{id}/permission` | | `200` | The domain with `permission_confirmed: true` |
 | `POST /api/domains/{id}/verify` | | `200` | The domain with `verified: true`; `409` when the record is not found, `503` when the DNS lookup failed |
 | `GET /api/domains/{id}/addresses` | | `200` | List of `ip`, `hosts` (names that resolved to it in the latest scan) and `approved` |

@@ -1,14 +1,16 @@
-"""Permission (#3), ownership verification (#48) and port scan approvals (#81) of a domain."""
+"""Permission (#3), ownership verification (#48), port scan approvals (#81) and deletion
+(#16) of a domain."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from qnsentry import verification
 from qnsentry.api.schemas import AddressOut, DomainOut, PortScanApprovalsIn
-from qnsentry.db.models import Domain, PortScanApproval, ScanStatus
+from qnsentry.config import settings
+from qnsentry.db.models import Domain, PortScanApproval, Scan, ScanStatus
 from qnsentry.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -21,6 +23,45 @@ def get_domain_or_404(db: Session, domain_id: int) -> Domain:
     if domain is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Domain not found")
     return domain
+
+
+def is_stuck(scan: Scan) -> bool:
+    """A queued or running scan older than the scan timeout will not finish anymore."""
+    timeout = timedelta(minutes=settings.scan_timeout_minutes)
+    return scan.created_at < datetime.now(UTC) - timeout
+
+
+def refuse_while_scanning(domains: list[Domain]) -> None:
+    """409 when one of the domains has a scan that is queued or running.
+
+    Deleting it would pull the scan away from under the worker, which then fails on its next
+    commit. A stuck scan does not count: it will not finish anymore (the rule of start_scan).
+    """
+    for domain in domains:
+        if any(
+            scan.status in (ScanStatus.QUEUED, ScanStatus.RUNNING) and not is_stuck(scan)
+            for scan in domain.scans
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A scan of {domain.name} is still running. Wait until it has finished.",
+            )
+
+
+@router.delete("/domains/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_domain(domain_id: int, db: Session = Depends(get_db)) -> Response:
+    """Delete the domain with its scans, findings and port scan approvals (#16).
+
+    This is how a client's data is erased on request (GDPR art. 17), before the retention
+    period of #46 would delete it.
+    """
+    domain = get_domain_or_404(db, domain_id)
+    refuse_while_scanning([domain])
+    scans = len(domain.scans)
+    db.delete(domain)
+    db.commit()
+    logger.info("Deleted domain %s with %s scan(s)", domain_id, scans)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def record_present(domain: Domain) -> bool:

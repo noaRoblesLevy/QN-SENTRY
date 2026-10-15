@@ -84,6 +84,12 @@ class Client(Base):
     def risk_complete(self) -> bool | None:
         return self.risk.complete if self.risk else None
 
+    @property
+    def last_scan(self) -> "Scan | None":
+        """The newest scan of any of its domains, also one that is running or failed (#16)."""
+        scans = [scan for domain in self.domains for scan in domain.scans]
+        return max(scans, key=lambda scan: scan.id, default=None)
+
 
 class Domain(Base):
     __tablename__ = "domains"
