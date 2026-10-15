@@ -1,8 +1,9 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { CircleCheck, Copy, Radar, ShieldCheck } from 'lucide-react'
+import { CircleCheck, Copy, Pencil, Radar, ShieldCheck, Trash2 } from 'lucide-react'
 import { api } from '../api'
 import Button from '../components/Button'
+import ConfirmButton from '../components/ConfirmButton'
 import InlineAddForm from '../components/InlineAddForm'
 import PageHeader from '../components/PageHeader'
 import PortScanScope from '../components/PortScanScope'
@@ -11,6 +12,7 @@ import RelativeTime from '../components/RelativeTime'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import RiskBadge from '../components/RiskBadge'
 import StatusBadge from '../components/StatusBadge'
+import TextInput from '../components/TextInput'
 import { useAsync } from '../hooks/useAsync'
 import { plural } from '../lib/format'
 import { isScanActive } from '../lib/labels'
@@ -47,6 +49,11 @@ function ClientView({ clientId }: { clientId: number }) {
   const [checkingDomainId, setCheckingDomainId] = useState<number>()
   const [checkErrors, setCheckErrors] = useState<Record<number, string>>({})
   const [copiedDomainId, setCopiedDomainId] = useState<number>()
+  // Renaming the client (#16)
+  const [renaming, setRenaming] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [renameError, setRenameError] = useState<string>()
+  const [savingName, setSavingName] = useState(false)
 
   async function checkDomain(domain: Domain, action: (domainId: number) => Promise<Domain>) {
     setCheckingDomainId(domain.id)
@@ -89,6 +96,37 @@ function ClientView({ clientId }: { clientId: number }) {
 
   async function addDomain(name: string, permissionConfirmed: boolean) {
     await api.addDomain(clientId, name, permissionConfirmed)
+    reload()
+  }
+
+  async function handleRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!newName.trim()) {
+      setRenameError('Enter a client name.')
+      return
+    }
+    setSavingName(true)
+    setRenameError(undefined)
+    try {
+      await api.renameClient(clientId, newName.trim())
+      setRenaming(false)
+      reload()
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : 'Something went wrong. Try again.')
+    } finally {
+      setSavingName(false)
+    }
+  }
+
+  // On success the client is gone, so go back to the overview; a 409 (a scan is still
+  // running) is thrown and shown by the ConfirmButton instead.
+  async function deleteClient() {
+    await api.deleteClient(clientId)
+    navigate('/')
+  }
+
+  async function deleteDomain(domain: Domain) {
+    await api.deleteDomain(domain.id)
     reload()
   }
 
@@ -190,6 +228,13 @@ function ClientView({ clientId }: { clientId: number }) {
                           >
                             {running ? 'Scan running' : 'Run scan'}
                           </Button>
+                          <ConfirmButton
+                            label="Delete"
+                            confirmLabel="Delete domain"
+                            icon={<Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />}
+                            message={`Deletes ${domain.name} with all its scans and findings.`}
+                            onConfirm={() => deleteDomain(domain)}
+                          />
                         </span>
                       </td>
                     </tr>
@@ -276,6 +321,48 @@ function ClientView({ clientId }: { clientId: number }) {
           confirmation="I own this domain or have written permission to scan it."
           onAdd={addDomain}
         />
+      </Panel>
+
+      <Panel title="Manage client">
+        {renaming ? (
+          <form className="rename-form" onSubmit={handleRename} noValidate>
+            <TextInput
+              className="rename-field"
+              label="Client name"
+              value={newName}
+              error={renameError}
+              onChange={(event) => setNewName(event.target.value)}
+              disabled={savingName}
+            />
+            <Button type="submit" disabled={savingName}>
+              {savingName ? 'Saving' : 'Save'}
+            </Button>
+            <Button variant="ghost" onClick={() => setRenaming(false)} disabled={savingName}>
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <div className="manage-actions">
+            <Button
+              variant="ghost"
+              icon={<Pencil size={16} strokeWidth={1.5} aria-hidden="true" />}
+              onClick={() => {
+                setNewName(client.name)
+                setRenameError(undefined)
+                setRenaming(true)
+              }}
+            >
+              Rename
+            </Button>
+            <ConfirmButton
+              label="Delete client"
+              confirmLabel="Delete client"
+              icon={<Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />}
+              message={`Deletes ${client.name} with all its domains, scans and findings. This cannot be undone.`}
+              onConfirm={deleteClient}
+            />
+          </div>
+        )}
       </Panel>
 
       {scanHistory.length > 0 && (

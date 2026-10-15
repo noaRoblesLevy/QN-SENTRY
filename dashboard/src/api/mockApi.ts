@@ -1,4 +1,4 @@
-import type { Address, Client, Domain, Finding, ModuleName, ModuleRun, Risk, Scan, ScanStatus, ScanSummary } from '../types'
+import type { Address, Client, Domain, Finding, LastScan, ModuleName, ModuleRun, Risk, Scan, ScanStatus, ScanSummary } from '../types'
 import { isScanActive, MODULES } from '../lib/labels'
 import { computeRisk, NO_RISK } from '../lib/risk'
 import { ApiError, type Api } from './api'
@@ -134,6 +134,33 @@ function summary(scan: StoredScan): ScanSummary {
   return { id: scan.id, status: progress(scan).status, created_at: new Date(scan.startedAt).toISOString(), ...scanRisk(scan) }
 }
 
+/** The newest scan of any of the client's domains (#16); null before the first scan */
+function lastScanOf(client: StoredClient): LastScan | null {
+  const domainIds = new Set(client.domains.map((d) => d.id))
+  const newest = scans.filter((s) => domainIds.has(s.domainId)).sort((a, b) => b.startedAt - a.startedAt)[0]
+  if (!newest) return null
+  const status = progress(newest).status
+  const finished = isScanActive(status)
+    ? null
+    : new Date(newest.startedAt + QUEUE_MS + MODULES.length * MODULE_MS).toISOString()
+  return {
+    id: newest.id,
+    domain_id: newest.domainId,
+    status,
+    created_at: new Date(newest.startedAt).toISOString(),
+    finished_at: finished,
+  }
+}
+
+/** 409 when one of the domains has a scan that is still running (like the backend) */
+function refuseWhileScanning(domains: Domain[]): void {
+  for (const domain of domains) {
+    if (scans.some((s) => s.domainId === domain.id && isScanActive(progress(s).status))) {
+      throw new ApiError(409, `A scan of ${domain.name} is still running. Wait until it has finished.`)
+    }
+  }
+}
+
 /** A client's risk is that of its riskiest domain, using each domain's newest scored scan */
 function withRisk(client: StoredClient): Client {
   const latest = client.domains.map((domain) =>
@@ -145,9 +172,10 @@ function withRisk(client: StoredClient): Client {
   )
   const scored = latest.filter((risk): risk is Risk => risk !== undefined)
   const worst = [...scored].sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))[0]
-  if (!worst) return { ...client, ...NO_RISK }
+  const last_scan = lastScanOf(client)
+  if (!worst) return { ...client, ...NO_RISK, last_scan }
   // Incomplete when any domain's latest scan is (data contract 10.7)
-  return { ...client, ...worst, risk_complete: scored.every((risk) => risk.risk_complete) }
+  return { ...client, ...worst, risk_complete: scored.every((risk) => risk.risk_complete), last_scan }
 }
 
 export const mockApi: Api = {
@@ -179,6 +207,40 @@ export const mockApi: Api = {
       const client: StoredClient = { id: nextClientId++, name: trimmed, domains: [] }
       clients.push(client)
       return withRisk(client)
+    }),
+
+  renameClient: (clientId, name) =>
+    delay(() => {
+      const client = clients.find((c) => c.id === clientId)
+      if (!client) throw new ApiError(404, 'Client not found')
+      const trimmed = name.trim()
+      if (!trimmed) throw new ApiError(422, 'Enter a client name.')
+      client.name = trimmed
+      return withRisk(client)
+    }),
+
+  deleteClient: (clientId) =>
+    delay(() => {
+      const index = clients.findIndex((c) => c.id === clientId)
+      if (index === -1) throw new ApiError(404, 'Client not found')
+      refuseWhileScanning(clients[index].domains)
+      const [removed] = clients.splice(index, 1)
+      const domainIds = new Set(removed.domains.map((d) => d.id))
+      for (let i = scans.length - 1; i >= 0; i--) {
+        if (domainIds.has(scans[i].domainId)) scans.splice(i, 1)
+      }
+    }),
+
+  deleteDomain: (domainId) =>
+    delay(() => {
+      const client = clients.find((c) => c.domains.some((d) => d.id === domainId))
+      const domain = client?.domains.find((d) => d.id === domainId)
+      if (!client || !domain) throw new ApiError(404, 'Domain not found')
+      refuseWhileScanning([domain])
+      client.domains = client.domains.filter((d) => d.id !== domainId)
+      for (let i = scans.length - 1; i >= 0; i--) {
+        if (scans[i].domainId === domainId) scans.splice(i, 1)
+      }
     }),
 
   addDomain: (clientId, name, permissionConfirmed) =>

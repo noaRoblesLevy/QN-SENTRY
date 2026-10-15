@@ -5,6 +5,12 @@ export type Api = {
   listClients(): Promise<Client[]>
   getClient(clientId: number): Promise<Client>
   createClient(name: string): Promise<Client>
+  /** Rename a client; same rules as creating one (#16) */
+  renameClient(clientId: number, name: string): Promise<Client>
+  /** Delete a client with all its domains, scans and findings (#16, GDPR art. 17) */
+  deleteClient(clientId: number): Promise<void>
+  /** Delete a domain with its scans, findings and port scan approvals (#16) */
+  deleteDomain(domainId: number): Promise<void>
   /** permissionConfirmed: the user confirmed they own the domain or may scan it (#3) */
   addDomain(clientId: number, name: string, permissionConfirmed: boolean): Promise<Domain>
   confirmPermission(domainId: number): Promise<Domain>
