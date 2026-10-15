@@ -1,5 +1,6 @@
 # Continuous integration (#67): every pull request and every push to main runs the
-# tests, pyflakes, a migration check and the dashboard lint and build.
+# tests, pyflakes, a migration check, the dashboard lint and build, and the install script
+# on a clean machine (#18).
 name: CI
 
 on:
@@ -104,3 +105,43 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm build
+
+  install:
+    name: Install script on a clean machine
+    # A fresh runner with Docker and nothing of QN-Sentry: what a new user starts from (#18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the script with shellcheck
+        run: shellcheck install.sh
+      - name: Install and start QN-Sentry
+        run: ./install.sh
+        env:
+          # The way the team passes its shared secret; a throwaway value here
+          DOMAIN_VERIFICATION_SECRET: ci-only-secret-for-domain-verification-tests
+      - name: The configuration has the given secret and a generated password
+        run: |
+          grep -qx 'DOMAIN_VERIFICATION_SECRET=ci-only-secret-for-domain-verification-tests' .env
+          grep -Eqx 'POSTGRES_PASSWORD=[0-9a-f]{48}' .env
+      - name: The dashboard answers and forwards the API
+        run: |
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          curl -fsS http://127.0.0.1:8080/api/health | grep -q '"database":"ok"'
+      - name: Running it again keeps the configuration
+        run: |
+          cp .env "$RUNNER_TEMP/env-before"
+          ./install.sh
+          cmp .env "$RUNNER_TEMP/env-before"
+      - name: Without .env it refuses to touch the existing database
+        run: |
+          mv .env "$RUNNER_TEMP/env-saved"
+          if ./install.sh; then echo "install.sh should have refused"; exit 1; fi
+          test ! -f .env
+          mv "$RUNNER_TEMP/env-saved" .env
+      - name: Logs of a failed install
+        if: failure()
+        run: docker compose logs --tail 100
+      - name: Remove everything
+        if: always()
+        run: docker compose down -v
