@@ -35,6 +35,38 @@ git clone https://github.com/noaRoblesLevy/QN-SENTRY.git
 cd QN-SENTRY
 ```
 
+### Install with one command
+
+```bash
+./install.sh                                              # Linux, macOS, Git Bash
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1    # Windows PowerShell
+```
+
+Windows blocks scripts by default; `-ExecutionPolicy Bypass` allows this one run only, without changing the setting.
+
+The script:
+
+1. checks that Docker is installed and running, with Docker Compose 2.24 or newer, and stops with what to do when something is missing;
+2. creates `.env` from `.env.example` with a generated database password and `DOMAIN_VERIFICATION_SECRET` (the operating system's cryptographic random generator);
+3. builds and starts everything with `docker compose up -d --build`, waits until the API reports the database as `ok`, and shows the addresses of the dashboard and the API.
+
+It is safe to run again, e.g. after `git pull`: **an existing `.env` is never overwritten**, only the example values in it are filled in. When there is no `.env` but the database of an earlier installation still exists, it stops instead of generating a password that database would refuse.
+
+**Use the team's secret** when TXT records were already added for it (see below), so they keep working on this installation:
+
+```bash
+DOMAIN_VERIFICATION_SECRET=<secret> ./install.sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -DomainVerificationSecret <secret>
+```
+
+Without it a new secret is generated, and every domain needs the TXT record the dashboard shows for it. Then continue with [Check that it works](#check-that-it-works). The steps below do the same by hand.
+
 ### Create the configuration
 
 ```bash
@@ -167,9 +199,53 @@ netsh interface ipv4 show excludedportrange protocol=tcp
 
 and choose ports outside them in the same `docker-compose.override.yml`.
 
+## Optional: HTTPS with Caddy
+
+QN-Sentry runs locally by design: every port is bound to `127.0.0.1`, so the software and the scan data stay on your machine and nothing is sent over a network. Caddy is only needed when the dashboard must be reachable from other machines, e.g. a shared server in the MSP's own network.
+
+There is no login yet (#20): whoever reaches the dashboard can add domains and start scans. So never expose it without the password below, and only on a network you control.
+
+1. Create `Caddyfile` next to `docker-compose.yml`. Replace the name with yours, and the hash with the output of `docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'`:
+
+   ```caddyfile
+   qnsentry.example.internal {
+       # Internal certificate authority: browsers warn until its root certificate is trusted.
+       # For a public name with ports 80 and 443 open, leave this line out: Caddy then gets a
+       # Let's Encrypt certificate itself.
+       tls internal
+       basic_auth {
+           admin <hash>
+       }
+       # nginx in the dashboard container also forwards /api to the API
+       reverse_proxy dashboard:8080
+   }
+   ```
+
+2. Add Caddy in `docker-compose.override.yml`, which Docker Compose reads automatically:
+
+   ```yaml
+   services:
+     caddy:
+       image: caddy:2-alpine
+       ports:
+         - "443:443"
+       volumes:
+         - ./Caddyfile:/etc/caddy/Caddyfile:ro
+         - caddy-data:/data
+       depends_on:
+         - dashboard
+
+   volumes:
+     caddy-data:
+   ```
+
+3. Start with `docker compose up -d` and open `https://qnsentry.example.internal`. The dashboard and the API stay on `127.0.0.1` as well; only Caddy listens on the network.
+
+Do not commit `Caddyfile` or the override file: add them to `.git/info/exclude`.
+
 ## Security notes
 
-- The API and dashboard are bound to `127.0.0.1`: they are only reachable from the machine itself. There is no login yet (#20), so do not publish these ports on a network.
+- The API and dashboard are bound to `127.0.0.1`: they are only reachable from the machine itself. There is no login yet (#20), so do not publish these ports on a network (see [Optional: HTTPS with Caddy](#optional-https-with-caddy) for the safe way).
 - The database and Redis have no published ports; only the containers can reach them.
 - Every container runs as a non-root user.
 
