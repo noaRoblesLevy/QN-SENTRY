@@ -58,8 +58,11 @@ It is safe to run again, e.g. after `git pull`: **an existing `.env` is never ov
 **Use the team's secret** when TXT records were already added for it (see below), so they keep working on this installation:
 
 ```bash
-DOMAIN_VERIFICATION_SECRET=<secret> ./install.sh
+export DOMAIN_VERIFICATION_SECRET=<secret>
+./install.sh
 ```
+
+`export` is needed: `DOMAIN_VERIFICATION_SECRET=<secret>` on a line of its own only sets a variable in your shell, which the script does not see, so it would quietly generate a new secret. `DOMAIN_VERIFICATION_SECRET=<secret> ./install.sh` on **one** line works too.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -DomainVerificationSecret <secret>

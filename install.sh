@@ -8,9 +8,11 @@
 #    verification secret. An existing .env is kept: only the example values are replaced
 # 3. Builds and starts every service, and waits until the API answers
 #
-# With the secret the team already uses, the TXT records that were added keep working:
+# With the secret the team already uses, the TXT records that were added keep working.
+# Export it: on a line of its own, without export, the script does not see it
 #
-#     DOMAIN_VERIFICATION_SECRET=<secret> ./install.sh
+#     export DOMAIN_VERIFICATION_SECRET=<secret>
+#     ./install.sh
 #
 # Running it again is safe: it keeps .env and updates the containers.
 # Windows PowerShell: install.ps1 does the same.
