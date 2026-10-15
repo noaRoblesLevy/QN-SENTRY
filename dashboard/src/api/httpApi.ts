@@ -40,6 +40,23 @@ function post<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
 }
 
+function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
+/** DELETE returns 204 No Content, so there is no body to parse (unlike request). */
+async function del(path: string): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, { method: 'DELETE' })
+  } catch {
+    throw new ApiError(0, 'Could not reach the QN-SENTRY API. Check that the backend is running.')
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorMessage(response))
+  }
+}
+
 /** Direct link to the PDF report of a finished scan (downloaded by the browser, not fetched) */
 export function reportUrl(scanId: number): string {
   return `${BASE_URL}/api/scans/${scanId}/report.pdf`
@@ -49,6 +66,9 @@ export const httpApi: Api = {
   listClients: () => request('/api/clients'),
   getClient: (clientId) => request(`/api/clients/${clientId}`),
   createClient: (name) => post('/api/clients', { name }),
+  renameClient: (clientId, name) => patch(`/api/clients/${clientId}`, { name }),
+  deleteClient: (clientId) => del(`/api/clients/${clientId}`),
+  deleteDomain: (domainId) => del(`/api/domains/${domainId}`),
   addDomain: (clientId, name, permissionConfirmed) =>
     post(`/api/clients/${clientId}/domains`, { name, permission_confirmed: permissionConfirmed }),
   confirmPermission: (domainId) => post(`/api/domains/${domainId}/permission`),
