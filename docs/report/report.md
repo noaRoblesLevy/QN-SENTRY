@@ -122,7 +122,7 @@ The report (#17) is written for management: a summary in plain language, the tot
 | Scan results are deleted after 90 days, also stuck scans, every night and when the worker starts | `worker/retention.py` (#46) |
 | Documents only exist in a temporary folder during the analysis | Metadata module |
 | Breach data: only names, dates and kinds of data | Breach module |
-| API and dashboard bound to `127.0.0.1`; database and Redis without published ports | `docker-compose.yml` |
+| The platform runs locally by design: API and dashboard bound to `127.0.0.1`, database and Redis without published ports, so the software and the scan data never leave the operator's own machine | `docker-compose.yml` |
 | Every container runs as a non-root user | Dockerfiles (#60) |
 | Secrets only in `.env`, never in Git | `.gitignore` |
 
@@ -204,7 +204,7 @@ QN-Sentry processes personal data: names in document metadata, usernames, busine
 | Purpose limitation | Only used to assess the organisation's exposure |
 | Data minimisation | Breach details limited to names, dates and kinds of data; documents kept only during the analysis |
 | Storage limitation | Automatic deletion after 90 days |
-| Security | Local-only ports, non-root containers, secrets outside Git; authentication planned (#20) |
+| Security | Local and single-user by design: all ports bound to `127.0.0.1` (the software and scan data stay on the operator's machine), non-root containers, secrets outside Git. Multi-user login with roles is future work for a shared deployment (#20) |
 | Transfers outside the EU | Have I Been Pwned is operated from Australia; only the address is sent, and the default source is the local dataset |
 | Roles | The client is controller, the operator of QN-Sentry processor (art. 28 agreement) |
 
@@ -233,7 +233,7 @@ A scan without the certificate check (#49) scored 15/16 with the certificate rep
 
 ### 5.3 Weaknesses
 
-**TO COMPLETE**; candidates: no authentication yet (#20); dependence on free external services (Certificate Transparency, passive DNS sources) that are sometimes slow or down; breach coverage limited to published and derived addresses.
+**TO COMPLETE**; candidates: the platform is single-user and local by design, so there is no login with roles yet (a shared, multi-tenant deployment would need authentication, #20); dependence on free external services (Certificate Transparency, passive DNS sources) that are sometimes slow or down; breach coverage limited to published and derived addresses.
 
 ### 5.4 Future work
 
