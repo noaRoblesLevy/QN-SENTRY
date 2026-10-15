@@ -115,3 +115,22 @@
     align-items: flex-end;
   }
 }
+
+/* Manage client: rename and delete (#16) */
+.manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.rename-field {
+  min-width: 16rem;
+}

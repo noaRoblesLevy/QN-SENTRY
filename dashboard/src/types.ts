@@ -40,10 +40,21 @@ export type Domain = {
   scans?: ScanSummary[]
 }
 
+/** The newest scan of any of a client's domains, for the client overview (#16) */
+export type LastScan = {
+  id: number
+  domain_id: number
+  status: ScanStatus
+  created_at: string
+  finished_at: string | null
+}
+
 export type Client = Risk & {
   id: number
   name: string
   domains: Domain[]
+  // Null when none of its domains was scanned yet (#16)
+  last_scan?: LastScan | null
 }
 
 export type ModuleRun = {

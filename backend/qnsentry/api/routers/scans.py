@@ -1,14 +1,13 @@
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from kombu.exceptions import OperationalError as QueueUnavailable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from qnsentry.api.routers.domains import record_present
+from qnsentry.api.routers.domains import is_stuck, record_present
 from qnsentry.api.schemas import FindingOut, ModuleRunOut, ScanOut, ScanSummary
-from qnsentry.config import settings
 from qnsentry.db.models import Domain, Finding, ModuleRun, Scan, ScanStatus
 from qnsentry.db.session import get_db
 from qnsentry.modules import MODULES
@@ -18,12 +17,6 @@ from qnsentry.worker.tasks import run_scan
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["scans"])
-
-
-def is_stuck(scan: Scan) -> bool:
-    """A queued or running scan older than the scan timeout will not finish anymore."""
-    timeout = timedelta(minutes=settings.scan_timeout_minutes)
-    return scan.created_at < datetime.now(UTC) - timeout
 
 
 def get_scan_or_404(db: Session, scan_id: int) -> Scan:

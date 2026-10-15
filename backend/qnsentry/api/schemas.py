@@ -24,6 +24,10 @@ class ClientCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class ClientUpdate(ClientCreate):
+    """A new name for a client (#16), with the same rules as when it was created."""
+
+
 class DomainCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -116,6 +120,18 @@ class DomainWithScans(DomainOut):
     scans: list[ScanSummary]
 
 
+class LastScan(BaseModel):
+    """The newest scan of any of the client's domains, for the client overview (#16)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    domain_id: int
+    status: ScanStatus
+    created_at: datetime
+    finished_at: datetime | None
+
+
 class ClientOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -127,6 +143,8 @@ class ClientOut(BaseModel):
     risk_level: str | None = None
     # False when the score comes from a partial scan (a module failed)
     risk_complete: bool | None = None
+    # Null when none of its domains was scanned yet
+    last_scan: LastScan | None = None
 
 
 class ClientDetail(ClientOut):

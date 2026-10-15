@@ -17,16 +17,21 @@ Given a company domain, QN-Sentry performs an on-demand OSINT assessment of the 
 
 ## Technology
 
-Python · FastAPI · Celery + Redis · PostgreSQL · React · Caddy · Docker Compose
+Python · FastAPI · Celery + Redis · PostgreSQL · React · Docker Compose · Caddy (optional)
 
 ## Getting started
 
-Requirements: Docker with Docker Compose.
+Requirements: Docker with Docker Compose 2.24 or newer. One command checks them, creates `.env` with generated secrets and starts everything:
 
 ```bash
-cp .env.example .env          # then choose your own database password in .env
-docker compose up -d --build
+./install.sh                                              # Linux, macOS, Git Bash
 ```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1    # Windows PowerShell
+```
+
+Running it again keeps your `.env`. To install by hand, or to reuse the team's verification secret, see the [installation guide](docs/installation.md).
 
 | Service | Address | Purpose |
 |---|---|---|
