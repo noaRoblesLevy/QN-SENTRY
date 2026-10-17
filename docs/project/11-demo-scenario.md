@@ -34,7 +34,8 @@ Both scans belong to the same client. The client BadSecurityInc is therefore **n
 **The day before**
 
 - [ ] Test environment is online: `https://www.badsecurityinc.be` loads, the documents under `/files/` download, `badsecuritylnc.be` has its MX record and certificate
-- [ ] Create the release tag `v1.0` on the final `main` (see 11.6), then `docker compose up -d --build` on the demo laptop from a clean checkout of that tag
+- [ ] Create the release tag `v1.0` on the final `main` (see 11.6), then on the demo laptop, from a clean checkout of that tag, run `./install.sh` with the team's `DOMAIN_VERIFICATION_SECRET` exported, so the TXT record already on `badsecurityinc.be` (#48) keeps verifying
+- [ ] Confirm the TXT record for `badsecurityinc.be` is still set for the team secret, then open the client and check it shows as verified (the ownership check #48 refuses `Verify` and every scan otherwise)
 - [ ] Run the detection-rate script against a fresh scan (`testenv/detection-rate`, see its README) and put the result on the conclusion slide
 - [ ] Record the backup video of the full script
 
@@ -76,18 +77,15 @@ The cleaned `privacy-notice.pdf` must **not** appear: it shows that the platform
 
 ## 11.6 Open Points
 
-This first version assumes the whole platform is finished. What the script depends on that is not on `main` yet (01/10/2026):
+Updated 17/10/2026. Almost everything the script depends on is now on `main`: the risk score (#53), the PDF report (#51), lookalike certificates (#49, #54), metadata email extraction (#8) and the derived address `pieter.mertens` (#12), the ownership check (#48), and the detection-rate measurement (#55, `testenv/detection-rate`). Two things are still open:
 
-| Part of the script | Depends on |
-|---|---|
-| Risk score (1:15) | #53 |
-| PDF report (5:00) | #51 |
-| Lookalike certificate (2:30) | #49; lookalikes inside Docker need #54 |
-| Breach addresses from the team page (3:45) | Metadata email extraction #8; derived address `pieter.mertens` #12 |
-| Attack Surface (4:30) | #4, #5, #6 and the test VM #2 |
-| "Add client" with an ownership check | #48 (if the check is built, the TXT record of `badsecurityinc.be` must be set before the demo) |
-| Detection rate on the conclusion slide, and the ground truth in 11.4 | #55 (`testenv/detection-rate`) |
-| The PDF report while Attack surface is a placeholder | #51 shows it as "not available in this version"; without #4 to #6 by the demo, say so when the report is shown |
-| Release tag `v1.0` for the demo laptop | To create on the final `main`, after the feature freeze (25/10) |
+| Part of the script | Depends on | State |
+|---|---|---|
+| Attack Surface at 4:30 (web services, outdated server headers) | #6 | Subdomains (#4) and the port and service scan (#5) are merged; web services (#6) is the last module |
+| The whole live demo against the test environment | #2 | The VM with the `dev.` subdomain and the decoys must be online |
 
-When all of these are merged: rehearse the script with a timer, adjust the timings in 11.2, and replace this section with the rehearsal notes.
+Because the ownership check (#48) is built, the TXT record for `badsecurityinc.be` must be set for the team's `DOMAIN_VERIFICATION_SECRET` before the demo, or `Verify` and every scan refuse the domain. `install.sh` keeps that secret when it is exported (see 11.3).
+
+Until #6 lands, the PDF report shows Attack Surface as "not available in this version" (#51); say so when the report is opened at 5:00. The release tag `v1.0` is created on the final `main` after the feature freeze (25/10).
+
+When #6 and #2 land: rehearse the script with a timer, adjust the timings in 11.2, and replace this section with the rehearsal notes.
