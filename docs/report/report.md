@@ -122,7 +122,7 @@ The report (#17) is written for management: a summary in plain language, the tot
 | Scan results are deleted after 90 days, also stuck scans, every night and when the worker starts | `worker/retention.py` (#46) |
 | Documents only exist in a temporary folder during the analysis | Metadata module |
 | Breach data: only names, dates and kinds of data | Breach module |
-| API and dashboard bound to `127.0.0.1`; database and Redis without published ports | `docker-compose.yml` |
+| The platform runs locally by design: API and dashboard bound to `127.0.0.1`, database and Redis without published ports, so the software and the scan data never leave the operator's own machine | `docker-compose.yml` |
 | Every container runs as a non-root user | Dockerfiles (#60) |
 | Secrets only in `.env`, never in Git | `.gitignore` |
 
@@ -130,7 +130,7 @@ The full legal and ethical framework is chapter 5 of the project documentation.
 
 ### 2.8 Quality: how we know it works
 
-- **Unit tests** without network: DNS, HTTP, the clock and external tools are replaced by fakes. **TO COMPLETE**: final number of tests.
+- **Unit tests** without network: DNS, HTTP, the clock and external tools are replaced by fakes. 422 automated tests in total (15/10/2026): 390 that run without a network or database, and 32 API tests against a real PostgreSQL (run in continuous integration and locally with `QNSENTRY_TEST_DATABASE=1`). The interpretation functions (exiftool tags, SPF/DMARC records, the risk score) take plain data, so they are tested without the tools or the network.
 - **Reviews:** every change went through a pull request reviewed by the other team member, who also ran it, merged it with `main` and probed edge cases. Many real bugs were found this way (chapter 3).
 - **Integration tests** in Docker Compose of all open pull requests together, on separate ports and volumes.
 - **Detection rate** against the planted weaknesses (chapter 5).
@@ -204,7 +204,7 @@ QN-Sentry processes personal data: names in document metadata, usernames, busine
 | Purpose limitation | Only used to assess the organisation's exposure |
 | Data minimisation | Breach details limited to names, dates and kinds of data; documents kept only during the analysis |
 | Storage limitation | Automatic deletion after 90 days |
-| Security | Local-only ports, non-root containers, secrets outside Git; authentication planned (#20) |
+| Security | Local and single-user by design: all ports bound to `127.0.0.1` (the software and scan data stay on the operator's machine), non-root containers, secrets outside Git. Multi-user login with roles is future work for a shared deployment (#20) |
 | Transfers outside the EU | Have I Been Pwned is operated from Australia; only the address is sent, and the default source is the local dataset |
 | Roles | The client is controller, the operator of QN-Sentry processor (art. 28 agreement) |
 
@@ -233,7 +233,7 @@ A scan without the certificate check (#49) scored 15/16 with the certificate rep
 
 ### 5.3 Weaknesses
 
-**TO COMPLETE**; candidates: no authentication yet (#20); dependence on free external services (Certificate Transparency, passive DNS sources) that are sometimes slow or down; breach coverage limited to published and derived addresses.
+**TO COMPLETE**; candidates: the platform is single-user and local by design, so there is no login with roles yet (a shared, multi-tenant deployment would need authentication, #20); dependence on free external services (Certificate Transparency, passive DNS sources) that are sometimes slow or down; breach coverage limited to published and derived addresses.
 
 ### 5.4 Future work
 
@@ -255,7 +255,7 @@ The weekly timesheets (who, what, when, hours) are on Google Drive. **TO COMPLET
 |---|---|---|
 | 1 (28/09 to 04/10) | Domains, data model and finding format, Compose skeleton, modules as command-line proofs of concept | Data contract (26/09), walking skeleton end to end (28/09), dashboard with mock API (28/09), test website and lookalike online (29/09), Phishing, Metadata and Breach modules merged (28/09 to 30/09), PDF report, risk score, retention and detection rate in review (30/09), migrations (01/10). Well ahead of the planning for the platform; Attack Surface and the test VM behind |
 | 2 (05/10 to 11/10) | Modules write findings to PostgreSQL; Celery workers and Redis operational; BadSecurityInc target server online with first planted findings | The first two were already reached in week 1. Also done: permission and ownership verification (#3, #48, a week 4 *Should*), warnings per module (#32), continuous integration and branch protection, email addresses and derived breach addresses (#8, #12), installation and user guides, subdomains and port scan with per-address consent (#4, #5, #81), public DNS resolvers (#80); detection rate 25/25. **Behind:** the target server (test VM, #2) is not online yet, so the planted services on it cannot be measured |
-| 3 (12/10 to 18/10) | End-to-end MVP | **TO COMPLETE** |
+| 3 (12/10 to 18/10) | End-to-end MVP | In progress (status 15/10). Done: the risk score is stored per scan (#59), a warning when an approved address has no open port (#5), the report brought up to date with week 2 (#69), and the phishing module uses public DNS resolvers (#80, closed). The whole chain works end to end for a verified domain. **Still needed for the MVP:** the test VM online (#2), web services and technologies (#6), multi-client management (#16), authentication (#20) and the Caddy proxy with the install script (#18), all Quinten's or shared. **TO COMPLETE** at the end of the week: whether the MVP was reached on 18/10 |
 | 4 (19/10 to 25/10) | Feature freeze | **TO COMPLETE** |
 | 5 (26/10 to 01/11) | Delivery | **TO COMPLETE** |
 
