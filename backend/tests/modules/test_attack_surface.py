@@ -6,11 +6,17 @@ import pytest
 
 from qnsentry.db.models import Severity
 from qnsentry.modules import MODULES, MODULES_BY_NAME
-from qnsentry.modules.attack_surface import AttackSurfaceModule, subdomains
+from qnsentry.modules.attack_surface import AttackSurfaceModule, subdomains, web
 from qnsentry.modules.attack_surface.subdomains import Host, discover, parse_dnsx_output, parse_subfinder_output
 from qnsentry.modules.base import ScanContext
 
 DOMAIN = "badsecurityinc.be"
+
+
+@pytest.fixture(autouse=True)
+def no_web_probe(monkeypatch):
+    """The web services (#6) have their own tests in test_web.py."""
+    monkeypatch.setattr(web, "probe", lambda hosts: [])
 
 
 def dnsx_line(host, a=(), aaaa=(), cname=(), status="NOERROR"):
@@ -241,11 +247,8 @@ def test_module_reports_subdomains_and_fills_the_context(monkeypatch):
         {"name": "badsecurityinc.be", "ips": ["76.76.21.21"], "cdn": None},
         {"name": "www.badsecurityinc.be", "ips": ["76.76.21.21"], "cdn": None},
     ]
-    # Nothing approved, so no port scan (#5, #81); until #6 the module says it is not complete
-    assert context.warnings == [
-        "1 address(es) were not port-scanned because they were not confirmed",
-        "Web services are not checked yet in this version of QN-Sentry",
-    ]
+    # Nothing approved, so no port scan (#5, #81)
+    assert "1 address(es) were not port-scanned because they were not confirmed" in context.warnings
 
 
 def test_many_addresses_are_shortened_in_the_title(monkeypatch):
