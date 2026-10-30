@@ -67,6 +67,13 @@ SEVERITY_COLORS = {
     "low": (colors.HexColor("#1d5cb8"), colors.HexColor("#e4eefc")),
     "info": (colors.HexColor("#4f5d6c"), colors.HexColor("#eef1f4")),
 }
+# The same labels and colours as the risk badge of the dashboard (RiskBadge.tsx, risk.ts)
+RISK_LEVELS = {
+    "low": ("Low", "low"),
+    "moderate": ("Moderate", "medium"),
+    "high": ("High", "high"),
+    "very_high": ("Very high", "critical"),
+}
 
 
 @dataclass
@@ -103,6 +110,11 @@ class ReportData:
     findings: list[ReportFinding] = field(default_factory=list)
     # Sources the report must credit, e.g. Have I Been Pwned (CC BY 4.0)
     attributions: list[str] = field(default_factory=list)
+    # The risk score stored with the scan (#59); None for a scan without a score
+    risk_score: int | None = None
+    risk_level: str | None = None
+    risk_complete: bool | None = None
+    risk_method: int | None = None
 
 
 def build_report(data: ReportData) -> bytes:
@@ -129,7 +141,16 @@ def build_report(data: ReportData) -> bytes:
     unavailable = [m for m in data.modules if not m.available]
 
     # ---------- Summary ----------
-    story += [Paragraph("Summary", styles["h1"]), Paragraph(_summary_text(data, counts), styles["body"])]
+    summary = Paragraph(_summary_text(data, counts), styles["body"])
+    story += [Paragraph("Summary", styles["h1"]), _with_risk(data, summary, styles)]
+    if data.risk_score is not None and data.risk_complete is False:
+        story.append(
+            Paragraph(
+                "<b>* The score may be too low:</b> not everything could be checked, so findings may be "
+                "missing. See 'Scope and method' at the end.",
+                styles["body"],
+            )
+        )
     if failed or unavailable:
         reasons = []
         if failed:
@@ -194,6 +215,17 @@ def build_report(data: ReportData) -> bytes:
         )
     )
     story.append(_scope_table(data, styles))
+    if data.risk_score is not None:
+        story += [
+            Spacer(1, 3 * mm),
+            Paragraph(
+                f"<b>Risk score (method {_x(data.risk_method)}):</b> every finding adds points by severity. The "
+                "points give a score from 0 to 100 that rises more slowly the higher it gets, and the score "
+                "is at least the minimum that belongs to the worst finding. So it shows how exposed the "
+                "organisation is, and only compares fairly with scores of the same method.",
+                styles["body"],
+            ),
+        ]
     if data.attributions:
         story.append(Spacer(1, 3 * mm))
         story.append(Paragraph("Sources: " + "; ".join(_x(a) for a in data.attributions) + ".", styles["body"]))
@@ -251,6 +283,34 @@ def _summary_text(data: ReportData, counts: Counter) -> str:
     else:
         text += "All of them are low risk or informational."
     return text
+
+
+def _with_risk(data: ReportData, summary: Paragraph, styles):
+    """The summary text with the risk score next to it; only the text without a score."""
+    if data.risk_score is None:
+        return summary
+    label, tone = RISK_LEVELS.get(data.risk_level, (str(data.risk_level), "info"))
+    fg, bg = SEVERITY_COLORS[tone]
+    mark = "*" if data.risk_complete is False else ""
+    score = Paragraph(
+        f"<font size='8' color='{fg.hexval()}'>RISK SCORE</font><br/>"
+        f"<font size='22' color='{fg.hexval()}'><b>{data.risk_score}{mark}</b></font><br/>"
+        f"<font size='9' color='{fg.hexval()}'><b>{_x(label)}</b></font>",
+        ParagraphStyle("risk", fontName=SANS, alignment=1, leading=24),
+    )
+    table = Table([[score, summary]], colWidths=[36 * mm, None])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, 0), bg),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (1, 0), (1, 0), 4 * mm),
+                ("TOPPADDING", (0, 0), (0, 0), 4),
+                ("BOTTOMPADDING", (0, 0), (0, 0), 6),
+            ]
+        )
+    )
+    return table
 
 
 def _severity_tiles(counts: Counter) -> Table:
