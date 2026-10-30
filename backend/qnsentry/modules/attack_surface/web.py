@@ -24,11 +24,18 @@ TIMEOUT_SECONDS = 10
 HTTPX_TIMEOUT_SECONDS = 600
 
 PASSWORD_FIELD = re.compile(r"""<input\b[^>]*\btype\s*=\s*["']?password""", re.IGNORECASE)
-# Name and version in a Server header ("nginx/1.18.0") or a technology ("PHP:7.4.3")
-SOFTWARE = re.compile(r"^(nginx|php|apache)[a-z ]*[:/ ]v?(\d+)\.(\d+)", re.IGNORECASE)
+# Name and version in a Server header ("nginx/1.18.0") or a technology ("PHP:7.4.3"). The exact
+# names only: phpMyAdmin or Apache Struts have version numbers of their own
+SOFTWARE = re.compile(r"^(nginx|php|apache)(?: http server)?[:/ ]v?(\d+)\.(\d+)", re.IGNORECASE)
 # Oldest branch that still got security fixes in October 2026; older ones get none anymore.
 # Only software with a clear support policy, so "outdated" stays a fact and not an opinion
 OLDEST_SUPPORTED = {"nginx": (1, 26), "php": (8, 2), "apache": (2, 4)}
+# PHP2Shell: unauthenticated remote code execution, exploited since October 2026. The first
+# fixed release per branch (php.net, 21/10/2026); older branches got no release. Keep this
+# table up to date: a new critical PHP vulnerability needs new numbers here
+PHP2SHELL_CVES = ["CVE-2026-109618", "CVE-2026-109619"]
+PHP2SHELL_FIXED = {(8, 2): 35, (8, 3): 36, (8, 4): 27, (8, 5): 12}
+PHP_VERSION = re.compile(r"^php[:/ ]v?(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
 
 
 @dataclass
@@ -41,6 +48,7 @@ class WebService:
     technologies: list[str] = field(default_factory=list)
     login_page: bool = False
     outdated: list[str] = field(default_factory=list)  # e.g. ["nginx 1.18", "PHP 7.4"]
+    unpatched_php: str = ""  # e.g. "8.4.26": a PHP version below the fix of PHP2SHELL_FIXED
 
 
 def probe(hosts: list[str]) -> list[WebService]:
@@ -98,6 +106,7 @@ def parse_httpx_output(output: str) -> list[WebService]:
                 technologies=technologies,
                 login_page=bool(PASSWORD_FIELD.search(entry.get("body") or "")),
                 outdated=outdated_software([server, *technologies]),
+                unpatched_php=unpatched_php([server, *technologies]),
             )
         )
     return services
@@ -116,3 +125,19 @@ def outdated_software(names: list[str]) -> list[str]:
             label = "PHP" if product == "php" else product
             outdated.setdefault(product, f"{label} {version[0]}.{version[1]}")
     return list(outdated.values())
+
+
+def unpatched_php(names: list[str]) -> str:
+    """The PHP version in `names` when it is below the fix of PHP2Shell, otherwise "".
+
+    A branch newer than the table counts as fixed. Without a full version nothing can be said.
+    """
+    for name in names:
+        match = PHP_VERSION.match(name)
+        if match is None:
+            continue
+        major, minor, patch = (int(part) for part in match.groups())
+        branch = (major, minor)
+        if branch < min(PHP2SHELL_FIXED) or patch < PHP2SHELL_FIXED.get(branch, 0):
+            return f"{major}.{minor}.{patch}"
+    return ""

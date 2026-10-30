@@ -6,6 +6,7 @@
     {"id": "as-www-subdomain", "module": "attack_surface", "type": "subdomain", "asset": "www.badsecurityinc.be", "severity": "info", "planted": "Website subdomain"},
     {"id": "as-admin-login", "module": "attack_surface", "type": "web_service", "asset": "*dev.badsecurityinc.be*", "details": {"login_page": true}, "severity": "medium", "planted": "Staging admin login page on dev.", "pending": "The test VM (#2)"},
     {"id": "as-outdated-server", "module": "attack_surface", "type": "web_service", "asset": "*dev.badsecurityinc.be*", "details": {"outdated": true}, "severity": "medium", "planted": "Headers nginx/1.18.0 and PHP/7.4.3", "pending": "The test VM (#2)"},
+    {"id": "as-unpatched-php", "module": "attack_surface", "type": "web_service", "asset": "*dev.badsecurityinc.be*", "details": {"unpatched": true}, "severity": "high", "planted": "Header PHP/7.4.3, below the fix for PHP2Shell", "pending": "The test VM (#2)"},
     {"id": "as-web-apex", "module": "attack_surface", "type": "web_service", "asset": "https://badsecurityinc.be", "severity": "info", "planted": "The website on Vercel"},
     {"id": "as-web-www", "module": "attack_surface", "type": "web_service", "asset": "https://www.badsecurityinc.be", "severity": "info", "planted": "The website on Vercel"},
     {"id": "as-web-dev", "module": "attack_surface", "type": "web_service", "asset": "*dev.badsecurityinc.be*", "severity": "info", "planted": "The staging website on the VM", "pending": "The test VM (#2)"},

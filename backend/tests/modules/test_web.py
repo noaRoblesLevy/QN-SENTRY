@@ -7,7 +7,7 @@ import pytest
 from qnsentry.db.models import Severity
 from qnsentry.modules.attack_surface import AttackSurfaceModule, web, web_findings
 from qnsentry.modules.attack_surface.subdomains import RESOLVERS, Host
-from qnsentry.modules.attack_surface.web import WebService, outdated_software, parse_httpx_output
+from qnsentry.modules.attack_surface.web import WebService, outdated_software, parse_httpx_output, unpatched_php
 from qnsentry.modules.base import ScanContext
 
 DOMAIN = "badsecurityinc.be"
@@ -49,13 +49,14 @@ def test_httpx_output_gives_the_web_service_with_login_page_and_outdated_softwar
         technologies=["Nginx:1.18.0", "PHP:7.4.3"],
         login_page=True,
         outdated=["nginx 1.18", "PHP 7.4"],
+        unpatched_php="7.4.3",
     )
 
 
 def test_a_current_website_has_no_login_page_and_nothing_outdated():
     [service] = parse_httpx_output(json.dumps(VERCEL))
 
-    assert (service.login_page, service.outdated) == (False, [])
+    assert (service.login_page, service.outdated, service.unpatched_php) == (False, [], "")
 
 
 def test_failed_probes_and_garbage_are_skipped():
@@ -95,6 +96,17 @@ def test_the_word_password_alone_is_no_login_page(body):
         (["PHP:8.2.0"], []),
         (["Apache/2.2.34"], ["apache 2.2"]),
         (["Apache HTTP Server:2.4.58"], []),
+        (["Apache HTTP Server:2.2.15"], ["apache 2.2"]),
+        (["Apache/2.2.15 (CentOS)"], ["apache 2.2"]),
+        (["nginx/1.18.0 (Ubuntu)"], ["nginx 1.18"]),
+        # Other products: their version says nothing about PHP, Apache or nginx
+        (["phpMyAdmin:4.9.11"], []),
+        (["phpBB:3.3.0"], []),
+        (["PHP-Fusion:7.2"], []),
+        (["Apache Struts:2.3.5"], []),
+        (["Apache Solr:1.4"], []),
+        (["Apache Tomcat:1.0"], []),
+        (["Nginx Proxy Manager:1.2"], []),
         # The Server header and the detected technology name the same software: reported once
         (["nginx/1.18.0", "Nginx:1.18.0"], ["nginx 1.18"]),
         # Without a version nothing can be said
@@ -104,6 +116,40 @@ def test_the_word_password_alone_is_no_login_page(body):
 )
 def test_outdated_software(names, expected):
     assert outdated_software(names) == expected
+
+
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [
+        # Just below and exactly on the fix of every branch (php.net, 21/10/2026)
+        (["PHP:8.2.34"], "8.2.34"),
+        (["PHP:8.2.35"], ""),
+        (["PHP/8.3.35"], "8.3.35"),
+        (["PHP/8.3.36"], ""),
+        (["PHP:8.4.26"], "8.4.26"),
+        (["PHP:8.4.27"], ""),
+        (["PHP:8.5.11"], "8.5.11"),
+        (["PHP:8.5.12"], ""),
+        # Older branches got no release, so every version of them is below the fix
+        (["PHP/7.4.3"], "7.4.3"),
+        (["PHP:8.1.34"], "8.1.34"),
+        (["PHP/5.6.40"], "5.6.40"),
+        # A branch newer than the table has the fix
+        (["PHP:8.6.0"], ""),
+        (["PHP:9.0.0"], ""),
+        # Without a full version nothing can be said
+        (["PHP"], ""),
+        (["PHP:8.4"], ""),
+        (["PHP:7.4"], ""),
+        # Other products
+        (["phpMyAdmin:4.9.11"], ""),
+        (["nginx/1.18.0"], ""),
+        # A version anywhere in the list, once
+        (["nginx/1.18.0", "PHP/8.4.26", "PHP:8.4.26"], "8.4.26"),
+    ],
+)
+def test_unpatched_php(names, expected):
+    assert unpatched_php(names) == expected
 
 
 # ---------- The command ----------
@@ -190,18 +236,34 @@ def test_each_web_service_is_a_finding_with_title_status_and_technologies(monkey
     assert context.warnings == []
 
 
-def test_the_decoy_gives_a_login_and_an_outdated_finding_next_to_the_web_service(monkeypatch):
-    # One finding per entry of the ground truth: as-admin-login and as-outdated-server (#47)
+def test_the_decoy_gives_a_login_an_outdated_and_a_php_finding_next_to_the_web_service(monkeypatch):
+    # One finding per entry of the ground truth: as-admin-login, as-outdated-server and
+    # as-unpatched-php (#47)
     fake_probe(monkeypatch, parse_httpx_output(json.dumps(DECOY)))
 
-    service, login, outdated = web_findings(ScanContext(domain=DOMAIN, live_hosts=LIVE_HOSTS))
+    service, login, outdated, php = web_findings(ScanContext(domain=DOMAIN, live_hosts=LIVE_HOSTS))
 
     assert (service.severity, login.severity, outdated.severity) == (Severity.INFO, Severity.MEDIUM, Severity.MEDIUM)
     assert login.details["login_page"] is True and "outdated" not in login.details
     assert outdated.details["outdated"] is True and "login_page" not in outdated.details
     assert outdated.details["software"] == ["nginx 1.18", "PHP 7.4"]
     assert outdated.title == "Outdated software on http://dev.badsecurityinc.be: nginx 1.18, PHP 7.4"
-    assert {f.asset for f in (service, login, outdated)} == {"http://dev.badsecurityinc.be"}
+    assert {f.asset for f in (service, login, outdated, php)} == {"http://dev.badsecurityinc.be"}
+    assert php.severity == Severity.HIGH
+    assert php.details["unpatched"] is True and "outdated" not in php.details
+    assert (php.details["php"], php.details["cves"]) == ("7.4.3", ["CVE-2026-109618", "CVE-2026-109619"])
+    assert php.title == "PHP 7.4.3 on http://dev.badsecurityinc.be may allow a takeover without a password"
+    assert "based on the version the server reports" in php.description
+
+
+def test_a_supported_php_below_the_fix_is_not_outdated_but_still_a_finding(monkeypatch):
+    output = json.dumps({**VERCEL, "webserver": "Apache", "tech": ["PHP:8.4.26"]})
+    fake_probe(monkeypatch, parse_httpx_output(output))
+
+    service, php = web_findings(ScanContext(domain=DOMAIN, live_hosts=LIVE_HOSTS))
+
+    assert (service.severity, php.severity) == (Severity.INFO, Severity.HIGH)
+    assert php.details["php"] == "8.4.26"
 
 
 def test_the_page_itself_is_not_stored(monkeypatch):

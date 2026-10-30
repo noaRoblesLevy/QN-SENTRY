@@ -186,6 +186,8 @@ def web_findings(context: ScanContext) -> list[Finding]:
             findings.append(login_finding(service))
         if service.outdated:
             findings.append(outdated_finding(service))
+        if service.unpatched_php:
+            findings.append(unpatched_php_finding(service))
     return findings
 
 
@@ -251,6 +253,26 @@ def outdated_finding(service: WebService) -> Finding:
         severity=Severity.MEDIUM,
         asset=service.url,
         details={**web_details(service), "outdated": True, "software": service.outdated},
+    )
+
+
+def unpatched_php_finding(service: WebService) -> Finding:
+    version = service.unpatched_php
+    return Finding(
+        module=MODULE,
+        type="web_service",
+        title=f"PHP {version} on {service.url} may allow a takeover without a password",
+        description=(
+            f"{service.url} reports PHP {version}, which is older than the fix for the PHP2Shell "
+            f"vulnerabilities ({', '.join(web.PHP2SHELL_CVES)}). They let an attacker run code on "
+            "the server without logging in, and they have been exploited since October 2026. "
+            "This is based on the version the server reports: a Linux distribution can have "
+            "fixed it without changing the number, so check the real package. Update PHP to a "
+            "fixed release; the published workarounds do not make a server safe."
+        ),
+        severity=Severity.HIGH,
+        asset=service.url,
+        details={**web_details(service), "unpatched": True, "php": version, "cves": web.PHP2SHELL_CVES},
     )
 
 
