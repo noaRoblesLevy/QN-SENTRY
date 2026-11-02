@@ -182,4 +182,9 @@ def report_data(scan: Scan) -> ReportData:
         attributions=sorted(
             {f.details["source"] for f in scan.findings if f.module == "breach" and f.details.get("source")}
         ),
+        # The stored score (#59), so the report always matches the dashboard
+        risk_score=scan.risk_score,
+        risk_level=scan.risk_level,
+        risk_complete=scan.risk_complete,
+        risk_method=scan.risk_method,
     )
