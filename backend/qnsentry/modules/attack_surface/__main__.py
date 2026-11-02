@@ -1,4 +1,4 @@
-"""Command-line tool for the attack surface module (subfinder and dnsx must be installed,
+"""Command-line tool for the attack surface module (subfinder, dnsx and httpx must be installed,
 e.g. in the worker):
 
     python -m qnsentry.modules.attack_surface badsecurityinc.be
@@ -20,7 +20,7 @@ from qnsentry.modules.base import ScanContext
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m qnsentry.modules.attack_surface",
-        description="Find the subdomains of a domain in passive sources and resolve them (issue #4).",
+        description="Find the subdomains and web services of a domain (issues #4 and #6).",
     )
     parser.add_argument("domain", help="the client's domain, e.g. badsecurityinc.be")
     parser.add_argument("--json", action="store_true", help="print the findings in the data contract format")
@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         for f in findings:
             print(f"{f.severity.upper():<8}  {f.title}")
         print(f"\nLive hosts for the scan context: {', '.join(h['name'] for h in context.live_hosts)}")
-    print(f"{len(findings)} subdomain(s) in {elapsed:.0f} s", file=sys.stderr)
+    print(f"{len(findings)} finding(s) in {elapsed:.0f} s", file=sys.stderr)
     return 0
 
 
