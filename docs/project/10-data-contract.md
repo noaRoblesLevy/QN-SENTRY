@@ -53,6 +53,8 @@ For `breached_email`, `origin` is `"found publicly"` (the address is on the webs
 | `phishing` | `lookalike_domain`, `lookalike_certificate`, `email_security` |
 | `breach` | `breached_email` |
 
+`web_service` (#6) is used for four findings on the same URL, so each can be followed up on its own: the web service itself (`info`, `details` with `host`, `status`, `page_title`, `server`, `technologies`), a login page on its start page (`medium`, `details.login_page: true`) software on a branch without security fixes (`medium`, `details.outdated: true`, `details.software`) and a PHP version below the fix for PHP2Shell (`high`, `details.unpatched: true`, `details.php`, `details.cves`).
+
 ### 10.1.2 Writing Descriptions
 
 Every module writes its own `description`, because the text depends on the details (which data leaked, whether SPF also fails); a fixed text per `type` could not say that. So the report reads as one document, every description answers three questions, in this order and in plain language for a manager:

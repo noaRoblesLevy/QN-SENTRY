@@ -2,7 +2,7 @@
 
 1. Subdomains from passive sources, resolved to IP addresses (#4, subdomains.py)
 2. Open ports and service versions of the addresses the user approved (#5, ports.py)
-3. Web services and technologies (#6)
+3. Web services and technologies of the live hosts (#6, web.py)
 
 The live hosts go into the scan context, so the port and web checks scan exactly those.
 """
@@ -11,9 +11,10 @@ import time
 from dataclasses import asdict
 
 from qnsentry.db.models import Severity
-from qnsentry.modules.attack_surface import ports
+from qnsentry.modules.attack_surface import ports, web
 from qnsentry.modules.attack_surface.ports import Service
 from qnsentry.modules.attack_surface.subdomains import Host, discover
+from qnsentry.modules.attack_surface.web import WebService
 from qnsentry.modules.base import Finding, Module, ScanContext
 
 MODULE = "attack_surface"
@@ -75,9 +76,7 @@ class AttackSurfaceModule(Module):
         # The domain itself is the scanned domain, not a discovered subdomain
         findings = [to_finding(host) for host in hosts if host.name != context.domain]
         findings += port_findings(context)
-        # Until #6 exists, the report and the risk score must not present this module as
-        # complete (data contract 10.3.1)
-        context.warn("Web services are not checked yet in this version of QN-Sentry")
+        findings += web_findings(context)
         return findings
 
 
@@ -159,6 +158,122 @@ def port_findings(context: ScanContext) -> list[Finding]:
     if unidentified:
         context.warn(f"The services of {unidentified} address(es) could not be identified, only their open ports")
     return findings
+
+
+# ---------- Web services (#6) ----------
+
+
+def web_findings(context: ScanContext) -> list[Finding]:
+    """A finding per web service, and one for a login page or outdated software on it."""
+    hosts = [host["name"] for host in context.live_hosts]
+    if not hosts:
+        return []
+    try:
+        services = web.probe(hosts)
+    except RuntimeError as error:
+        context.warn(f"Web services could not be checked: {error}")
+        return []
+    if not services:
+        # httpx exits with 0 when it reaches nothing: this must not look like a checked result
+        context.warn(
+            f"No web service answered on {len(hosts)} host(s): either they run no website, or the "
+            "network QN-Sentry runs on blocks outgoing connections"
+        )
+    findings = []
+    for service in services:
+        findings.append(web_finding(service))
+        if service.login_page:
+            findings.append(login_finding(service))
+        if service.outdated:
+            findings.append(outdated_finding(service))
+        if service.unpatched_php:
+            findings.append(unpatched_php_finding(service))
+    return findings
+
+
+def web_details(service: WebService) -> dict:
+    return {
+        "host": service.host,
+        "status": service.status,
+        "page_title": service.title,
+        "server": service.server,
+        "technologies": service.technologies,
+    }
+
+
+def web_finding(service: WebService) -> Finding:
+    software = ", ".join(service.technologies) or service.server
+    return Finding(
+        module=MODULE,
+        type="web_service",
+        title=f"Web service {service.url} ({service.status})" + (f": {software}" if software else ""),
+        description=(
+            f"{service.url} answers with status {service.status}"
+            + (f" and the title \"{service.title}\"" if service.title else "")
+            + (f". It shows that it runs {software}" if software else "")
+            + ". Every website is a possible way in, and what it reveals about its software helps "
+            "an attacker choose an attack. Check that the site is still needed, keep its software "
+            "up to date and show as little as possible about it."
+        ),
+        severity=Severity.INFO,
+        asset=service.url,
+        details=web_details(service),
+    )
+
+
+def login_finding(service: WebService) -> Finding:
+    return Finding(
+        module=MODULE,
+        type="web_service",
+        title=f"Login page on {service.url}",
+        description=(
+            f"The start page of {service.url} asks for a password. A login page that anyone on the "
+            "internet can reach is a target for stolen and guessed passwords, and on a test or "
+            "admin site the security is often weaker than on the real one. Limit access to a VPN "
+            "or to known addresses, and use multi-factor authentication."
+        ),
+        severity=Severity.MEDIUM,
+        asset=service.url,
+        details={**web_details(service), "login_page": True},
+    )
+
+
+def outdated_finding(service: WebService) -> Finding:
+    software = ", ".join(service.outdated)
+    return Finding(
+        module=MODULE,
+        type="web_service",
+        title=f"Outdated software on {service.url}: {software}",
+        description=(
+            f"{service.url} reports {software}, a version that no longer gets security fixes. Its "
+            "known vulnerabilities stay open, and the site tells every visitor which ones to try. "
+            "This is based on what the server reports, so check the real version. Update to a "
+            "supported version and hide the version in the response headers."
+        ),
+        severity=Severity.MEDIUM,
+        asset=service.url,
+        details={**web_details(service), "outdated": True, "software": service.outdated},
+    )
+
+
+def unpatched_php_finding(service: WebService) -> Finding:
+    version = service.unpatched_php
+    return Finding(
+        module=MODULE,
+        type="web_service",
+        title=f"PHP {version} on {service.url} may allow a takeover without a password",
+        description=(
+            f"{service.url} reports PHP {version}, which is older than the fix for the PHP2Shell "
+            f"vulnerabilities ({', '.join(web.PHP2SHELL_CVES)}). They let an attacker run code on "
+            "the server without logging in, and they have been exploited since October 2026. "
+            "This is based on the version the server reports: a Linux distribution can have "
+            "fixed it without changing the number, so check the real package. Update PHP to a "
+            "fixed release; the published workarounds do not make a server safe."
+        ),
+        severity=Severity.HIGH,
+        asset=service.url,
+        details={**web_details(service), "unpatched": True, "php": version, "cves": web.PHP2SHELL_CVES},
+    )
 
 
 def classify(service: Service) -> tuple[Severity, str, str]:

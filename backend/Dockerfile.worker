@@ -10,11 +10,13 @@ WORKDIR /app
 # - katana: website crawler (#7)
 # - subfinder: subdomains from passive sources (#4); dnsx: resolves them (#4)
 # - naabu: open ports (#5), needs libpcap even for a TCP connect scan; nmap: service versions (#5)
+# - httpx: web services (#6), the ProjectDiscovery tool, not the Python package of the same name
 # The ProjectDiscovery tools are pinned and verified against their release checksums.
 ARG KATANA_VERSION=1.7.0
 ARG SUBFINDER_VERSION=2.17.0
 ARG DNSX_VERSION=1.3.1
 ARG NAABU_VERSION=2.6.1
+ARG HTTPX_VERSION=1.12.0
 # Set by Docker BuildKit to the platform being built for (amd64, arm64); amd64 without BuildKit
 ARG TARGETARCH
 RUN apt-get update \
@@ -33,6 +35,7 @@ RUN apt-get update \
     && install_tool subfinder "${SUBFINDER_VERSION}" "subfinder_${SUBFINDER_VERSION}_checksums.txt" \
     && install_tool dnsx "${DNSX_VERSION}" "dnsx_${DNSX_VERSION}_checksums.txt" \
     && install_tool naabu "${NAABU_VERSION}" "naabu-checksums.txt" \
+    && install_tool httpx "${HTTPX_VERSION}" "httpx_${HTTPX_VERSION}_checksums.txt" \
     && apt-get purge -y curl unzip \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
