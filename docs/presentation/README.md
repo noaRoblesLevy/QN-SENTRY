@@ -2,8 +2,7 @@
 
 Spreekscript en stand van zaken voor de verdediging (±15 min + vragen).
 
-- **Online deck (bewerkbaar):** https://claude.ai/artifact/TJWUuJEpb2fPECstrJ18ea
-- **Export in deze map:** `qn-sentry-presentatie.pptx` (PowerPoint)
+- **Deck in deze map:** `qn-sentry-presentatie.pptx` (PowerPoint)
 - **Demoscenario (bron, tijdstip per tijdstip):** [`../project/11-demo-scenario.md`](../project/11-demo-scenario.md)
 
 > Let op: de huidige PPTX is een **tussenstand met placeholders** (`[__]` op de slides Automatisatie en Resultaat). Na de eindscan opnieuw exporteren en dit bestand vervangen.
