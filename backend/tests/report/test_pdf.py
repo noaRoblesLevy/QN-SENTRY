@@ -31,7 +31,7 @@ DKIM = ReportFinding(
 )
 
 
-def report(findings, modules=None) -> ReportData:
+def report(findings, modules=None, **risk) -> ReportData:
     return ReportData(
         client="BadSecurityInc",
         domain="badsecurityinc.be",
@@ -42,6 +42,7 @@ def report(findings, modules=None) -> ReportData:
         modules=modules
         or [ReportModule(m, "completed") for m in ("attack_surface", "metadata", "phishing", "breach")],
         findings=findings,
+        **risk,
     )
 
 
@@ -236,6 +237,74 @@ def test_report_data_leaves_out_placeholder_findings(monkeypatch):
     assert [f.title for f in data.findings] == ["Registered lookalike"]
     assert {m.module: m.available for m in data.modules} == {"attack_surface": False, "phishing": True}
     assert data.modules[1].warnings == ["1 of 3 lookalike domain(s) could not be checked"]
+
+
+# ---------- Risk score (#88) ----------
+
+
+@pytest.mark.parametrize(
+    ("level", "label"),
+    [("low", "Low"), ("moderate", "Moderate"), ("high", "High"), ("very_high", "Very high")],
+)
+def test_the_report_shows_the_score_and_level_of_the_scan(level, label):
+    data = report([LOOKALIKE], risk_score=63, risk_level=level, risk_complete=True, risk_method=1)
+
+    text = text_of(build_report(data))
+
+    assert "RISK SCORE" in text and f"63 {label}" in text
+    assert "63*" not in text and "may be too low" not in text
+
+
+def test_an_incomplete_score_is_marked_and_explained():
+    data = report([LOOKALIKE], risk_score=88, risk_level="very_high", risk_complete=False, risk_method=1)
+
+    text = text_of(build_report(data))
+
+    assert "88*" in text
+    assert "* The score may be too low: not everything could be checked" in text
+
+
+def test_the_method_is_named_under_scope_and_method():
+    data = report([LOOKALIKE], risk_score=63, risk_level="high", risk_complete=True, risk_method=2)
+
+    text = text_of(build_report(data))
+
+    assert text.index("Scope and method") < text.index("Risk score (method 2):")
+
+
+def test_a_scan_without_findings_shows_score_zero_and_low():
+    data = report([], risk_score=0, risk_level="low", risk_complete=True, risk_method=1)
+
+    text = text_of(build_report(data))
+
+    assert "0 Low" in text
+    assert "QN-Sentry found nothing an attacker could use" in text
+
+
+def test_a_scan_without_a_score_shows_no_score_instead_of_zero():
+    text = text_of(build_report(report([LOOKALIKE])))
+
+    assert "RISK SCORE" not in text and "Risk score (method" not in text
+    assert "QN-Sentry found 1 finding" in text
+
+
+def test_report_data_reads_the_stored_score_not_the_findings(monkeypatch):
+    for name in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
+        monkeypatch.setenv(name, "test")
+    from qnsentry.api.routers.scans import report_data
+    from qnsentry.db import models
+
+    client = models.Client(name="BadSecurityInc")
+    domain = models.Domain(name="badsecurityinc.be", client=client)
+    # No findings: a score computed here would be 0, the stored one is what the dashboard shows
+    scan = models.Scan(
+        id=7, domain=domain, status="completed", created_at=datetime(2026, 10, 2, tzinfo=UTC),
+        risk_score=88, risk_level="very_high", risk_complete=False, risk_method=1,
+    )
+
+    data = report_data(scan)
+
+    assert (data.risk_score, data.risk_level, data.risk_complete, data.risk_method) == (88, "very_high", False, 1)
 
 
 def test_warnings_are_shown_under_scope():

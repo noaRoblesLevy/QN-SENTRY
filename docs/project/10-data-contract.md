@@ -53,6 +53,8 @@ For `breached_email`, `origin` is `"found publicly"` (the address is on the webs
 | `phishing` | `lookalike_domain`, `lookalike_certificate`, `email_security` |
 | `breach` | `breached_email` |
 
+`web_service` (#6) is used for four findings on the same URL, so each can be followed up on its own: the web service itself (`info`, `details` with `host`, `status`, `page_title`, `server`, `technologies`), a login page on its start page (`medium`, `details.login_page: true`) software on a branch without security fixes (`medium`, `details.outdated: true`, `details.software`) and a PHP version below the fix for PHP2Shell (`high`, `details.unpatched: true`, `details.php`, `details.cves`).
+
 ### 10.1.2 Writing Descriptions
 
 Every module writes its own `description`, because the text depends on the details (which data leaked, whether SPF also fails); a fixed text per `type` could not say that. So the report reads as one document, every description answers three questions, in this order and in plain language for a manager:
@@ -347,5 +349,6 @@ Rules:
 - **Incomplete scan:** a `partial` scan, a scan in which a module reported warnings (10.3.1), or a scan with a module that is still a placeholder, keeps its score with `risk_complete: false`, because a failed module or a failed part of one may have missed findings. The dashboard marks the score with an asterisk and shows how many modules completed without problems. `risk_complete` is `true` for a completed scan without warnings and `null` without a score.
 - **Client:** the score of its **riskiest domain**, using each domain's newest scan that has a score. `risk_complete` is `false` when the newest scored scan of **any** domain is incomplete: a finding missed on another domain could have raised the client's score.
 - The score is **stored when the scan finishes** (#59): the worker computes it from the findings at the end of the scan and keeps `risk_score`, `risk_level`, `risk_complete`, the points and `risk_method` on the scan. Reading a score never loads the findings, so the client list stays fast as the history grows. Scans made before #59 got their score in migration `0005`.
+- **PDF report (#88):** shows the stored score and level next to the summary, with the same asterisk and an explanation when `risk_complete` is `false`, and names `risk_method` under Scope and method. A scan without a score shows no score instead of 0.
 - **Method version:** `risk_method` is `METHOD` in `risk.py` at the time of the scan (now `1`). Whoever changes the weights, the scale, the floors or the levels raises `METHOD`: old scans keep the score they got, and their method number shows it was computed differently. Scores of different methods are not compared without saying so.
 

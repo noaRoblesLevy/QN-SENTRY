@@ -77,13 +77,23 @@ Because of that contract the dashboard, the PDF report and the risk score contai
 
 #### Attack Surface Mapping *(Quinten)*
 
-**TO COMPLETE** (#4 to #6): subdomain discovery (subfinder, Certificate Transparency, dnsx), port scanning (naabu with `-exclude-cdn`, a TCP connect scan because the worker runs as non-root), service and web technology detection (httpx), and the choices made.
+The module answers one question: what of the organisation can be reached from the internet? It has three parts that build on each other, and the first one fills `live_hosts` in the scan context for the other two.
+
+1. **Subdomains** (#4). **subfinder** lists the names that public sources know, such as Certificate Transparency logs and passive DNS databases. It never contacts the client's servers and does not guess names. **dnsx** resolves them, together with the domain itself and `www`, through public resolvers, at most 200 names. A wildcard record would make every name resolve, so one random name is resolved too: names that only point to the wildcard's addresses are left out. Both tools exit with 0 when they reach nothing, so the module reads their error output: without DNS it fails instead of reporting "no hosts".
+2. **Open ports and services** (#5). This is the first active check, so it has the strictest limits. **naabu** does a TCP connect scan of the 1000 most common ports at 300 packets per second, and `nmap -sT -sV` identifies the service and version on only the open ports. Connect scans need no raw packets, so the worker keeps running as non-root. Telnet, SMB, RDP, VNC, databases and the Docker API are `high`, because they do not belong on the internet; SSH, FTP and mail are `medium`, web servers `info` and anything else `low`. nmap's name for the service counts before the port number, so a database on another port is still `high`.
+3. **Web services** (#6). **httpx** visits the start page of every live host once, on the default web ports, at 10 requests per second. Each web service is an `info` finding with its status, title and technologies. A start page that asks for a password and software on a branch without security fixes each get their own `medium` finding, and a PHP version below the fix for PHP2Shell a `high` one. No paths are guessed, the page is not stored, and redirects are only followed on the same host, the lesson of #66.
+
+**Who may be port-scanned (#81).** The TXT record of #48 proves control of the domain, not of the servers behind it. `www.badsecurityinc.be` points to Vercel, an address shared with many other sites, so a port scan would reach Vercel's infrastructure, which chapter 5.2 of the project documentation promises not to do. Detecting that automatically is not reliable: the CDN list recognises Cloudflare and Fastly, but not `76.76.21.21`. So the user confirms per address that it may be scanned, unchecked by default, and `ScanContext.port_scan_targets()` is the one gate: an address must be approved, found again for a live host in this scan, and not of a known CDN. dnsx marks CDN addresses from their published ranges without contacting them. `naabu -exclude-cdn` stays on as a safety net only, because it would still scan ports 80 and 443. An address that is not scanned is counted in a warning, so the report and the risk score do not present it as checked.
+
+**Limitation.** The test VM (#2) was not available, so the checks on `dev.badsecurityinc.be` were not run online. The port scan, the login page and the outdated headers were tested in the worker image against the real decoys of `testenv/vm` on a local Docker network; the expected findings on `dev.` are reported as not measured in 5.1.
 
 #### Document Metadata Analysis *(Quinten)*
 
 The module crawls the client's website with **katana** (exact hosts only, depth 3, at most 120 s at 10 requests per second), downloads at most 50 public documents of 20 MB into a temporary folder that is deleted after the analysis, and reads their metadata with **exiftool**. It interprets the tags into people, usernames (`BSI\ljanssens`, `C:\Users\<name>\`), software (Office `AppVersion` mapped to 2007, 2010, ...), internal paths (`\\SRV-FS01\Finance\...`) and printer or scanner names. A document that leaks internal paths is `medium`, other leaks are `low`, a cleaned document gives no finding. Author names go into the scan context for the Breach module.
 
-**TO COMPLETE** *(Quinten)*: email addresses and the naming convention (#8), and the fix of the redirect gap (#66).
+**Email addresses and the naming convention** (#8). katana only reports the URLs of pages, so at most 30 HTML pages of 2 MB are fetched again, at 10 requests per second, and the addresses of the client's domain are taken from their `mailto:` links and text. The author names from the documents are then matched against those addresses to find the convention (such as `first.last`) and how a last name of several words is written; at least two matches are needed. Both go into the scan context, so the Breach module can derive addresses that were never published (#12).
+
+**Staying on the client's hosts** (#66). The crawler and the downloader checked a URL before requesting it, but a redirect was followed before anyone looked at where it pointed, so a single redirect could bring the scan to a third party. Now both refuse a redirect to another host before it is followed. katana's update check is off as well, so no other server is contacted (#76).
 
 #### Phishing Domain Detection
 
@@ -149,19 +159,22 @@ The problems that cost the most time, how we found them and what we changed. The
 | crt.sh unreliable | HTTP 502 errors and new certificates missing for 14 hours | Overloaded free service with indexing delay | Cert Spotter first, valid certificates only, uncertain answers not reported as clean, circuit breaker (#49) |
 | Office documents gave no metadata *(Quinten)* | Testing against the real website | exiftool needs the Perl library Archive::Zip to look inside `.docx` and `.xlsx` | Install `libarchive-zip-perl` in the worker image |
 | Broken JSON lines from katana *(Quinten)* | Testing against the real website | `str.splitlines()` also splits on U+0085, which appeared in binary response bodies | `split("\n")` and `-omit-body` |
-| Redirects reach other hosts *(Quinten)* | Review with two local servers, one playing a third party | katana and `urlopen` follow redirects before the host is checked | Redirects are no longer followed (#66, #71) |
+| Redirects reach other hosts *(Quinten)* | Review with two local servers, one playing a third party | katana and `urlopen` follow redirects before the host is checked | Redirects to another host are refused before they are followed, by the crawler and the downloader (#66, #71) |
 | A detection rate that could be gamed | Review of the measurement | One finding could tick off two expected entries, and reporting everything would score 100% | Maximum bipartite matching, and precision next to recall (#47) |
 | Report unreadable for homoglyphs | Review: "bаdsecurityinc.be" printed as "b■dsecurityinc.be" | The built-in PDF fonts only cover Latin | Bundled DejaVu fonts (#17) |
 | GDPR clean-up kept stuck scans forever | Review with a 100-day-old `running` scan | Only finished scans were deleted | Also delete queued or running scans older than the scan timeout (#46) |
 | A database change would wipe all data | Adding a column for warnings (#32) | `create_all` never alters an existing table | Alembic migrations with a `migrate` service; existing databases are stamped (#62) |
 | Port conflicts with other projects on the same laptop | `port is already allocated` | Other Compose projects on 8000 and 8080 | `docker-compose.override.yml` with `!override` |
 | PDF files corrupted in Git | A committed test document did not open | Line-ending conversion of binary files | `*.pdf binary` and `*.ttf binary` in `.gitattributes` |
-
 | A scan that hangs for no reason | Metadata module sometimes never finished | katana checks for updates at every start, and that request could hang | `-duc` on every ProjectDiscovery tool (#76) |
 | Phishing module takes over 15 minutes and skips DKIM | Real scan on one network, 5 seconds on another | Docker's DNS let every name that does not exist time out (5 s) instead of answering; phishing looks up hundreds of them | Public resolvers by default, `DNS_SERVERS` setting, fallback to the container's DNS when a network blocks them (#80) |
 | "0 subdomains" without network *(Quinten)* | Review: the module run with `--network none` | subfinder and dnsx exit with 0 when they reach nothing | Read their error output: no DNS fails the module, failed sources become a warning (#4) |
 | An approval for an address the client no longer uses *(Quinten)* | Review with a test: the address changed between two scans | Approvals were kept per address forever, and cloud addresses are reused | A port scan only targets approved addresses found again in the same scan (#81) |
 | A blocked network looks like a closed server *(Quinten)* | Review in a lab network with `--network none` | naabu exits with 0 when no connection is possible | A warning when an approved address has no open port (#5) |
+| A port scan would have reached Vercel *(Quinten)* | Checked with DNS lookups only before building #5 | The website's address is shared, and the CDN list of naabu does not know it | The user approves every address; unchecked by default (#81) |
+| The CDN safety net still scanned CDNs *(Quinten)* | Reading what `naabu -exclude-cdn` does | It only skips the full scan: ports 80 and 443 are still scanned | CDN addresses are marked with dnsx `-cdn` and left out before naabu runs (#5) |
+| A planted weakness that could not be matched *(Quinten)* | Scan of the SSH decoy in the worker image | The ground truth expected the host name and `low`; the finding has the address and `medium` | The entry now matches the finding (#6) |
+| Web services that silently disappear *(Quinten)* | Running httpx in a container without network | httpx also exits with 0 when it reaches nothing | A warning when no host answers (#6) |
 
 **TO COMPLETE**: problems of the test VM *(Quinten)* and of the last weeks.
 
@@ -275,6 +288,11 @@ The weekly timesheets (who, what, when, hours) are on Google Drive. **TO COMPLET
 | dnstwist | https://github.com/elceef/dnstwist | Lookalike domain generation (version 20250130) | |
 | katana (ProjectDiscovery) | https://github.com/projectdiscovery/katana | Website crawler (version 1.7.0) | |
 | ExifTool | https://exiftool.org | Document metadata | |
+| subfinder (ProjectDiscovery) | https://github.com/projectdiscovery/subfinder | Subdomains from passive sources (version 2.17.0) | |
+| dnsx (ProjectDiscovery) | https://github.com/projectdiscovery/dnsx | DNS resolution, CDN detection (version 1.3.1) | |
+| naabu (ProjectDiscovery) | https://github.com/projectdiscovery/naabu | Open ports (version 2.6.1) | |
+| Nmap | https://nmap.org | Service and version detection (version 7.95) | |
+| httpx (ProjectDiscovery) | https://github.com/projectdiscovery/httpx | Web services and technologies (version 1.12.0) | 30/10/2026 |
 | crt.sh | https://crt.sh | Backup Certificate Transparency search | |
 | Alembic documentation | https://alembic.sqlalchemy.org | Database migrations | |
 | DejaVu fonts | https://github.com/dejavu-fonts/dejavu-fonts | Unicode fonts in the PDF report (version 2.37) | 01/10/2026 |

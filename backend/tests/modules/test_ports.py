@@ -5,7 +5,7 @@ import json
 import pytest
 
 from qnsentry.db.models import Severity
-from qnsentry.modules.attack_surface import AttackSurfaceModule, classify, port_findings, ports, subdomains
+from qnsentry.modules.attack_surface import AttackSurfaceModule, classify, port_findings, ports, subdomains, web
 from qnsentry.modules.attack_surface.ports import Service, parse_naabu_output, parse_nmap_xml
 from qnsentry.modules.attack_surface.subdomains import Host
 from qnsentry.modules.base import ScanContext
@@ -280,15 +280,13 @@ def test_the_module_runs_the_port_scan_on_its_own_live_hosts(monkeypatch):
 
     monkeypatch.setattr("qnsentry.modules.attack_surface.discover", fake_discover)
     fake_scan(monkeypatch, open_ports={"192.0.2.10": [23]}, services=[Service("192.0.2.10", 23, service="telnet")])
+    monkeypatch.setattr(web, "probe", lambda hosts: [])  # tested in test_web.py
     context = ScanContext(domain=DOMAIN, port_scan_ips=["192.0.2.10"])
 
     findings = AttackSurfaceModule().run(context)
 
     assert [(f.type, f.severity) for f in findings] == [("subdomain", Severity.INFO), ("open_port", Severity.HIGH)]
-    assert context.warnings == [
-        "1 address(es) were not port-scanned because they were not confirmed",
-        "Web services are not checked yet in this version of QN-Sentry",
-    ]
+    assert "1 address(es) were not port-scanned because they were not confirmed" in context.warnings
 
 
 def test_dnsx_reports_the_cdn_of_a_host():
