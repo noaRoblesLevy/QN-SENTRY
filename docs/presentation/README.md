@@ -12,7 +12,7 @@ Spreekscript en stand van zaken voor de verdediging (±15 min + vragen).
 | # | Slide | Spreker | Tijd |
 |---|---|---|---|
 | 1 | Cover | Quinten | 0:00–0:20 |
-| 2 | Probleem | Quinten → Noa | 0:20–1:30 |
+| 2 | Probleem | Noa → Quinten (brugzin) | 0:20–1:30 |
 | 3 | Concept (4 stappen) | Noa | 1:30–2:15 |
 | 4 | Modules | Noa | 2:15–3:00 |
 | 5 | Demo (naar dashboard) | samen | 3:00–9:00 |
@@ -79,7 +79,7 @@ Overschakelen naar het dashboard. Backup: filmpje afspelen als iets hapert.
 ### 7. Automatisatie & kwaliteit — *Quinten*
 > "We hebben sterk op herbruikbaarheid ingezet. Eén commando, install.sh, controleert Docker, genereert de geheimen en start alles — een medestudent heeft het in tien minuten draaiend. Elke wijziging gaat door automatische tests: unit tests, een migratiecheck en zelfs een installatietest op een propere machine. En alle modules leveren hun bevindingen in één vast formaat, zodat het dashboard, het rapport en de risicoscore nooit modulespecifieke code nodig hebben."
 
-- **TODO:** exacte testaantal bevestigen na de eindscan (nu "± 450" op de slide).
+- **TODO:** op de slide staat "± 450"; het exacte aantal is **458** (CI op `main`, 1 skipped). Maak het exact bij de her-export.
 
 ### 8. Keuzes & verantwoording — *Noa*
 > "Een paar keuzes willen we uitlichten. Eén: het platform gaat nooit online. Scandata is gevoelig, dus alles draait lokaal bij de klant; login met rollen is bewust toekomstwerk. Twee: we hebben geen test-VM online gezet, omdat we geen cloud-credits meer hadden. De poortscan is wél gebouwd en getest tegen een decoy, maar we hebben ze niet live kunnen meten — dat vermelden we eerlijk als beperking. Drie: scannen mag pas na expliciete goedkeuring per IP-adres. Een domein bewijst immers geen controle over de server erachter, en gedeelde hosting scannen we nooit."
